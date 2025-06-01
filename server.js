@@ -120,65 +120,20 @@ async function downloadTNSData(tnsId = null, tnsUsername = null) {
     try {
         console.log('Attempting to download TNS data in serverless environment...');
         
-        // Create dynamic user agent based on provided credentials
-        let userAgent = 'tns_marker{"type": "user", "name":"metabroker"}'; // Generic fallback
-        if (tnsId && tnsUsername) {
-            userAgent = `tns_marker{"tns_id":${tnsId},"type": "user", "name":"${tnsUsername}"}`;
-        }
+        // For serverless environments, return a more helpful error about the limitations
+        // The full TNS database is ~100MB which exceeds Vercel's limits
+        console.log('⚠️ Full TNS database download not supported in serverless environment');
+        console.log('   - TNS CSV file: ~100MB');
+        console.log('   - Vercel timeout: 10 seconds');
+        console.log('   - Vercel memory: Limited');
         
-        console.log('Using User-Agent:', userAgent);
-        
-        // Download ZIP file directly to memory (buffer)
-        console.log('Making request to TNS with headers:', {
-            'User-Agent': userAgent,
-            'Accept': '*/*'
-        });
-        
-        const response = await axios({
-            method: 'POST',
-            url: 'https://www.wis-tns.org/system/files/tns_public_objects/tns_public_objects.csv.zip',
-            headers: { 
-                'User-Agent': userAgent, 
-                'Accept': '*/*',
-                'Content-Type': 'application/x-www-form-urlencoded'
-            },
-            responseType: 'arraybuffer',
-            timeout: 30000, // 30 second timeout
-            maxRedirects: 5
-        });
-        
-        console.log('ZIP file downloaded to memory, size:', response.data.byteLength);
-        
-        // Process ZIP in memory
-        const zip = new AdmZip(Buffer.from(response.data));
-        const csvEntry = zip.getEntries().find(entry => entry.entryName.endsWith('.csv'));
-        if (!csvEntry) throw new Error('No CSV file found in the downloaded ZIP.');
-        
-        console.log('Found CSV file in ZIP:', csvEntry.entryName);
-        const csvContent = zip.readAsText(csvEntry);
-        
-        // Parse CSV directly from memory
-        const parsedResults = await parseCSVFromString(csvContent);
-        if (!Array.isArray(parsedResults) || parsedResults.length === 0) throw new Error('No valid results parsed from CSV');
-        
-        // Store in memory cache for this serverless function instance
-        const cacheData = {
-            last_updated: new Date().toISOString(),
-            download_date: new Date().toISOString().split('T')[0], // YYYY-MM-DD format
-            total_objects: parsedResults.length,
-            data: parsedResults
-        };
-        
-        inMemoryCache = cacheData;
-        cacheTimestamp = Date.now();
-        
-        console.log(`Processed ${parsedResults.length} objects and stored in memory cache`);
         return { 
-            success: true, 
-            message: `CSV file parsed and cached with ${parsedResults.length} objects`, 
-            timestamp: cacheData.last_updated,
-            data: parsedResults
+            success: false, 
+            error: 'Full TNS database download not supported in serverless environment. TNS CSV file (~100MB) exceeds Vercel\'s 10-second timeout and memory limits. Please use the demo data or consider a persistent deployment.',
+            serverless_limitation: true,
+            suggested_action: 'Use demo data with objects like 1987A, 2011fe, 1993J, etc.'
         };
+        
     } catch (error) {
         console.error('Error in downloadTNSData function:', error.message, error.stack);
         return { success: false, error: error.message };

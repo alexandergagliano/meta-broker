@@ -124,6 +124,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 internal_names: 'SN 1993J',
                 Discovery_ADS_bibcode: '1993IAUC.5731....1R',
                 Class_ADS_bibcodes: '1993IAUC.5731....1R'
+            },
+            {
+                name: '2020oi',
+                ra: '12:17:25.89',
+                declination: '+28:15:56.1',
+                type: 'SN Ia',
+                redshift: '0.0144',
+                discoverydate: '2020-05-26',
+                discoverymag: '16.5',
+                filter: 'r',
+                reporting_group: 'ZTF',
+                source_group: 'ZTF',
+                internal_names: 'SN 2020oi, ZTF20abjwvae',
+                Discovery_ADS_bibcode: '2020TNSTR1615....1M',
+                Class_ADS_bibcodes: '2020TNSTR1615....1M'
             }
         ];
     }
@@ -467,7 +482,11 @@ document.addEventListener('DOMContentLoaded', () => {
                             }
                         } else {
                             console.error('TNS download failed:', updateResult.error);
-                            loadingStatus.textContent = `TNS download failed: ${updateResult.error}. Will use fallback data for searches.`;
+                            if (updateResult.serverless_limitation) {
+                                loadingStatus.textContent = `🌐 Serverless Limitation: Full TNS database (~100MB) exceeds platform limits. Using demo data with ${getFallbackServerlessData().length} example transients.`;
+                            } else {
+                                loadingStatus.textContent = `TNS download failed: ${updateResult.error}. Will use fallback data for searches.`;
+                            }
                         }
                     } else {
                         const errorResult = await updateResponse.json().catch(() => ({ error: 'Unknown error' }));
