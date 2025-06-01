@@ -102,14 +102,14 @@ async function parseCSV(filePath) {
     }
 }
 
-async function downloadTNSData(tnsUsername = null, tnsPassword = null) {
+async function downloadTNSData(tnsId = null, tnsUsername = null) {
     try {
         console.log('Attempting to download TNS data...');
         
         // Create dynamic user agent based on provided credentials
-        let userAgent = 'tns_marker{"tns_id":2633,"type": "user", "name":"agagliano"}'; // Fallback
-        if (tnsUsername) {
-            userAgent = `tns_marker{"type": "user", "name":"${tnsUsername}"}`;
+        let userAgent = 'tns_marker{"type": "user", "name":"metabroker"}'; // Generic fallback
+        if (tnsId && tnsUsername) {
+            userAgent = `tns_marker{"tns_id":${tnsId},"type": "user", "name":"${tnsUsername}"}`;
         }
         
         // For now, we're still using the public endpoint, but with proper user identification
@@ -163,21 +163,39 @@ app.get('/api/update-tns', async (req, res) => {
 // New POST endpoint (with credentials) for secure updates
 app.post('/api/update-tns', async (req, res) => {
     console.log('Received POST request for /api/update-tns with credentials');
-    const { tns_username, tns_password } = req.body;
     
-    if (!tns_username || !tns_password) {
+    // Prevent caching of API responses
+    res.set({
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+        'Surrogate-Control': 'no-store'
+    });
+    
+    const { tns_id, tns_username } = req.body;
+    
+    if (!tns_id || !tns_username) {
         console.log('No TNS credentials provided, using public download');
         const result = await downloadTNSData();
         res.json(result);
     } else {
-        console.log(`Using TNS credentials for user: ${tns_username}`);
-        const result = await downloadTNSData(tns_username, tns_password);
+        console.log(`Using TNS credentials for user: ${tns_username} (ID: ${tns_id})`);
+        const result = await downloadTNSData(tns_id, tns_username);
         res.json(result);
     }
 });
 
 app.get('/api/tns-data', async (req, res) => {
     console.log('Received request for /api/tns-data');
+    
+    // Prevent caching of API responses
+    res.set({
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+        'Surrogate-Control': 'no-store'
+    });
+    
     try {
         if (fs.existsSync(CACHE_FILE)) {
             const rawData = fs.readFileSync(CACHE_FILE);
@@ -196,17 +214,14 @@ app.get('/api/tns-data', async (req, res) => {
                 throw new Error('Invalid cache format');
             }
         } else {
-            console.log('Cache not found. Attempting to download...');
-            const result = await downloadTNSData(); // Attempt to download if cache miss
-            if (result.success && fs.existsSync(CACHE_FILE)){
-                const rawData = fs.readFileSync(CACHE_FILE);
-                const cacheData = JSON.parse(rawData);
-                console.log('Serving freshly downloaded data from cache.');
-                // Return just the data array for compatibility
-                res.json(cacheData.data || cacheData);
-            } else {
-                res.status(500).json({ error: 'Failed to retrieve TNS data.', details: result.error });
-            }
+            console.log('⚠️ No TNS cache available in serverless environment');
+            // In serverless environments like Vercel, we can't persist large files
+            // Return an error that prompts user to enter credentials for fresh download
+            res.status(404).json({ 
+                error: 'No TNS data available. Please enter TNS credentials to download the latest data.',
+                serverless: true,
+                message: 'This is a serverless deployment. TNS data cache is not persistent. Please provide TNS credentials to fetch fresh data.'
+            });
         }
     } catch (error) {
         console.error('Error serving TNS data:', error.message);
@@ -217,6 +232,15 @@ app.get('/api/tns-data', async (req, res) => {
 // Cache info endpoint
 app.get('/api/tns-cache-info', async (req, res) => {
     console.log('Received request for /api/tns-cache-info');
+    
+    // Prevent caching of API responses
+    res.set({
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+        'Surrogate-Control': 'no-store'
+    });
+    
     try {
         if (fs.existsSync(CACHE_FILE)) {
             const rawData = fs.readFileSync(CACHE_FILE);

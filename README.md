@@ -23,7 +23,7 @@ More to come!
 4. Click "Search"
 5. The application will display the object's coordinates and provide links to each broker
 
-## Example Supernovae
+## Example Transients
 
 Try searching for these transients which have data in the application:
 - SN 2020oi
@@ -35,4 +35,4 @@ Try searching for these transients which have data in the application:
 
 - Add more astronomical brokers
 - Add options to customize the search radius
-- Include more details about the supernova from various catalogs
+- Include more details about the transient from various catalogs

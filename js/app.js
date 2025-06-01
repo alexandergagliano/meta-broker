@@ -32,6 +32,10 @@ document.addEventListener('DOMContentLoaded', () => {
             localStorage.removeItem('lasair_api_token');
             localStorage.removeItem('credentials_modal_seen');
         }
+        
+        // Clear any cached error states that might persist
+        localStorage.removeItem('tns_error_cache');
+        localStorage.removeItem('app_initialization_failed');
     }
     
     // Clear corrupted data first
@@ -60,8 +64,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // They are NEVER logged, cached, or stored on our servers.
     let API_CREDENTIALS = {
         lasair: localStorage.getItem('lasair_api_token') || '',
-        tns_username: localStorage.getItem('tns_username') || '',
-        tns_password: localStorage.getItem('tns_password') || ''
+        tns_id: localStorage.getItem('tns_id') || '',
+        tns_username: localStorage.getItem('tns_username') || ''
     };
     
 
@@ -69,15 +73,15 @@ document.addEventListener('DOMContentLoaded', () => {
     // Function to refresh credentials from localStorage
     function refreshCredentials() {
         API_CREDENTIALS.lasair = localStorage.getItem('lasair_api_token') || '';
+        API_CREDENTIALS.tns_id = localStorage.getItem('tns_id') || '';
         API_CREDENTIALS.tns_username = localStorage.getItem('tns_username') || '';
-        API_CREDENTIALS.tns_password = localStorage.getItem('tns_password') || '';
     }
     
     // Check if credentials modal should be shown
     function shouldShowCredentialsModal() {
         const hasSeenModal = localStorage.getItem('credentials_modal_seen');
         const hasLasairCredentials = localStorage.getItem('lasair_api_token');
-        const hasTnsCredentials = localStorage.getItem('tns_username') && localStorage.getItem('tns_password');
+        const hasTnsCredentials = localStorage.getItem('tns_id') && localStorage.getItem('tns_username');
         // Show modal if they haven't seen it AND don't have TNS credentials
         return !hasSeenModal && !hasTnsCredentials;
     }
@@ -87,8 +91,8 @@ document.addEventListener('DOMContentLoaded', () => {
         credentialsModal.style.display = 'flex';
         // Pre-fill any existing credentials
         document.getElementById('lasair-token').value = API_CREDENTIALS.lasair;
+        document.getElementById('tns-id').value = API_CREDENTIALS.tns_id;
         document.getElementById('tns-username').value = API_CREDENTIALS.tns_username;
-        document.getElementById('tns-password').value = API_CREDENTIALS.tns_password;
     } else {
         credentialsModal.style.display = 'none';
     }
@@ -107,8 +111,8 @@ document.addEventListener('DOMContentLoaded', () => {
     
     function saveCredentials() {
         const lasairToken = document.getElementById('lasair-token').value.trim();
+        const tnsId = document.getElementById('tns-id').value.trim();
         const tnsUsername = document.getElementById('tns-username').value.trim();
-        const tnsPassword = document.getElementById('tns-password').value.trim();
         
         if (lasairToken && (lasairToken.includes('🆔') || lasairToken.includes('Object Information') || lasairToken.includes('<') || lasairToken.includes('undefined'))) {
             alert('Invalid API token detected. Please enter a valid Lasair API token.');
@@ -116,12 +120,16 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         
         // Validate TNS credentials
-        if (tnsUsername && !tnsPassword) {
-            alert('Please enter both TNS username and password, or leave both empty to use cached data.');
+        if (tnsId && !tnsUsername) {
+            alert('Please enter both TNS ID and username, or leave both empty to use cached data.');
             return;
         }
-        if (tnsPassword && !tnsUsername) {
-            alert('Please enter both TNS username and password, or leave both empty to use cached data.');
+        if (tnsUsername && !tnsId) {
+            alert('Please enter both TNS ID and username, or leave both empty to use cached data.');
+            return;
+        }
+        if (tnsId && isNaN(parseInt(tnsId))) {
+            alert('TNS ID must be a number.');
             return;
         }
         
@@ -129,9 +137,9 @@ document.addEventListener('DOMContentLoaded', () => {
             localStorage.setItem('lasair_api_token', lasairToken);
         }
         
-        if (tnsUsername && tnsPassword) {
+        if (tnsId && tnsUsername) {
+            localStorage.setItem('tns_id', tnsId);
             localStorage.setItem('tns_username', tnsUsername);
-            localStorage.setItem('tns_password', tnsPassword);
         }
         
         refreshCredentials();
@@ -146,9 +154,9 @@ document.addEventListener('DOMContentLoaded', () => {
         init();
     }
     
-    // Fallback data for famous supernovae that might not be in the TNS public cache
-    function getFallbackSupernovaData(searchName) {
-        const fallbackSupernovae = {
+    // Fallback data for famous transients that might not be in the TNS public cache
+    function getFallbackTransientData(searchName) {
+        const fallbackTransients = {
             '1987a': {
                 name: '1987A',
                 ra: '05:35:27.989',
@@ -243,7 +251,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // Check for exact match or common variations
         const normalizedName = searchName.toLowerCase().replace(/^sn\s*/, '');
-        return fallbackSupernovae[normalizedName] || null;
+        return fallbackTransients[normalizedName] || null;
     }
     
     // Function to convert RA/Dec from sexagesimal to decimal degrees
@@ -331,6 +339,9 @@ document.addEventListener('DOMContentLoaded', () => {
             loadingScreen.style.display = 'flex';
             loadingStatus.textContent = 'Connecting to server...';
             
+            // Clear any previous error states
+            clearCorruptedCredentials();
+            
             // Refresh credentials to get the latest from localStorage
             refreshCredentials();
             
@@ -339,16 +350,22 @@ document.addEventListener('DOMContentLoaded', () => {
             let shouldGetFreshData = false;
             
             try {
-                const cacheInfoResponse = await fetch(`${API_BASE_URL}/api/tns-cache-info`);
+                const cacheBuster = Date.now();
+                const cacheInfoResponse = await fetch(`${API_BASE_URL}/api/tns-cache-info?_=${cacheBuster}`, {
+                    cache: 'no-store',
+                    headers: {
+                        'Cache-Control': 'no-cache'
+                    }
+                });
                 if (cacheInfoResponse.ok) {
                     cacheInfo = await cacheInfoResponse.json();
         
                     
-                    // Decide if we should get fresh data
-                    const hasCredentials = API_CREDENTIALS.tns_username && API_CREDENTIALS.tns_password;
-                    const cacheIsOld = !cacheInfo.exists || !cacheInfo.is_current || (cacheInfo.age_days > 0);
-                    
-                    shouldGetFreshData = hasCredentials && cacheIsOld;
+                                // Decide if we should get fresh data
+            const hasCredentials = API_CREDENTIALS.tns_id && API_CREDENTIALS.tns_username;
+            const cacheIsOld = !cacheInfo.exists || !cacheInfo.is_current || (cacheInfo.age_days > 0);
+            
+            shouldGetFreshData = hasCredentials && cacheIsOld;
                     
                     if (cacheInfo.exists && cacheInfo.is_current) {
                         loadingStatus.textContent = 'Cache is current, loading existing data...';
@@ -358,8 +375,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             } catch (error) {
                 console.warn('Could not check cache info:', error);
-                // If we can't check cache info, try to get fresh data if we have credentials
-                shouldGetFreshData = API_CREDENTIALS.tns_username && API_CREDENTIALS.tns_password;
+                            // If we can't check cache info, try to get fresh data if we have credentials
+            shouldGetFreshData = API_CREDENTIALS.tns_id && API_CREDENTIALS.tns_username;
             }
             
             let usedFreshData = false;
@@ -373,14 +390,20 @@ document.addEventListener('DOMContentLoaded', () => {
                             'Content-Type': 'application/json',
                         },
                         body: JSON.stringify({
-                            tns_username: API_CREDENTIALS.tns_username,
-                            tns_password: API_CREDENTIALS.tns_password
+                            tns_id: API_CREDENTIALS.tns_id,
+                            tns_username: API_CREDENTIALS.tns_username
                         })
                     });
                     
                     if (updateResponse.ok) {
                         // Get the newly downloaded data
-                        const newCacheResponse = await fetch(`${API_BASE_URL}/api/tns-data`);
+                        const cacheBuster = Date.now();
+                        const newCacheResponse = await fetch(`${API_BASE_URL}/api/tns-data?_=${cacheBuster}`, {
+                            cache: 'no-store',
+                            headers: {
+                                'Cache-Control': 'no-cache'
+                            }
+                        });
                         if (newCacheResponse.ok) {
                             tnsCache = await newCacheResponse.json();
                             usedFreshData = true;
@@ -399,13 +422,24 @@ document.addEventListener('DOMContentLoaded', () => {
             // If we didn't get fresh data, try to get cached data
             if (!usedFreshData) {
                 try {
-                    const cacheResponse = await fetch(`${API_BASE_URL}/api/tns-data`);
+                    const cacheBuster = Date.now();
+                    const cacheResponse = await fetch(`${API_BASE_URL}/api/tns-data?_=${cacheBuster}`, {
+                        cache: 'no-store',
+                        headers: {
+                            'Cache-Control': 'no-cache'
+                        }
+                    });
                     
                     if (cacheResponse.ok) {
                         tnsCache = await cacheResponse.json();
                         loadingStatus.textContent = usedFreshData ? 'Loaded latest TNS data!' : 'Loading cached TNS data...';
                     } else {
-                        throw new Error('No TNS data available. Please enter TNS credentials to download the latest data.');
+                        const errorResponse = await cacheResponse.json();
+                        if (errorResponse.serverless) {
+                            throw new Error('🌐 Serverless deployment: No persistent cache available. Please enter TNS credentials to download fresh data.');
+                        } else {
+                            throw new Error('No TNS data available. Please enter TNS credentials to download the latest data.');
+                        }
                     }
                 } catch (error) {
                     throw error;
@@ -505,11 +539,11 @@ document.addEventListener('DOMContentLoaded', () => {
     searchForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         
-        // Get the supernova name from the input
-        const supernovaName = document.getElementById('supernova-name').value.trim();
+        // Get the transient name from the input
+        const transientName = document.getElementById('transient-name').value.trim();
         
-        if (!supernovaName) {
-            showStatus('Please enter a supernova name', 'error');
+        if (!transientName) {
+            showStatus('Please enter a transient name', 'error');
             return;
         }
         
@@ -517,33 +551,33 @@ document.addEventListener('DOMContentLoaded', () => {
         clearResults();
         
         // Show searching status
-        showStatus('Searching for ' + supernovaName + '...', 'info');
+        showStatus('Searching for ' + transientName + '...', 'info');
         
         try {
             // Search in the cache
-            const searchName = supernovaName.toLowerCase().replace(/^sn\s+/, '');
-            let supernova = tnsCache.find(obj => {
+            const searchName = transientName.toLowerCase().replace(/^sn\s+/, '');
+            let transient = tnsCache.find(obj => {
                 const objName = obj.name.toLowerCase().replace(/^sn\s+/, '');
                 return objName === searchName || 
                        (obj.internal_names && obj.internal_names.toLowerCase().includes(searchName));
             });
             
-            // Fallback for famous supernovae that may not be in the public TNS cache
-            if (!supernova) {
-                const fallbackData = getFallbackSupernovaData(searchName);
+            // Fallback for famous transients that may not be in the public TNS cache
+            if (!transient) {
+                const fallbackData = getFallbackTransientData(searchName);
                 if (fallbackData) {
     
-                    supernova = fallbackData;
+                    transient = fallbackData;
                 }
             }
 
-            if (!supernova) {
-                showStatus(`Couldn't find ${supernovaName} in the TNS database.`, 'error');
+            if (!transient) {
+                showStatus(`Couldn't find ${transientName} in the TNS database.`, 'error');
                 return;
             }
             
             // Display object header (coordinates are now part of the header)
-            populateObjectHeader(supernova);
+            populateObjectHeader(transient);
             
             // Show the results container
             resultsContainer.style.display = 'block';
@@ -552,7 +586,7 @@ document.addEventListener('DOMContentLoaded', () => {
             initializeCollapsibleSections();
             
             // Create direct links for each broker
-            const { ra: raString, declination: decString, name: snName } = supernova;
+            const { ra: raString, declination: decString, name: snName } = transient;
             const { raDecimal, decDecimal } = convertToDecimal(raString, decString);
 
             if (raDecimal === null || decDecimal === null) {
@@ -561,8 +595,8 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             
             // Populate new semantic sections with TNS data
-            populatePrimaryClassification(supernova);
-            populateDiscoveryInformation(supernova);
+            populatePrimaryClassification(transient);
+            populateDiscoveryInformation(transient);
             populateMachineLearningClassifications();
             populateContextualAnalysis();
             populateDetectionStatistics();
@@ -573,8 +607,8 @@ document.addEventListener('DOMContentLoaded', () => {
             let ztfId = null; // Define ztfId variable here
             let hasZtfId = false;
             
-            if (supernova.internal_names) {
-                const internalNames = supernova.internal_names.split(/[,;]\s*/);
+            if (transient.internal_names) {
+                const internalNames = transient.internal_names.split(/[,;]\s*/);
                 const ztfPattern = /^ZTF[0-9]{2}[a-z]{7}$/i; // Basic ZTF ID pattern e.g. ZTF19abcxyz
                 const foundZtfId = internalNames.find(name => ztfPattern.test(name.trim()));
                 if (foundZtfId) {
@@ -595,9 +629,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 mlSection.innerHTML = `
                     <div class="no-ztf-notice">
                         <h4>⚠️ Limited Broker Data Available</h4>
-                        <p>This object (${supernova.name}) does not have a ZTF identifier. It was likely discovered by other surveys:</p>
+                        <p>This object (${transient.name}) does not have a ZTF identifier. It was likely discovered by other surveys:</p>
                         <ul>
-                            ${supernova.internal_names ? supernova.internal_names.split(/[,;]\s*/).map(name => `<li><strong>${name.trim()}</strong></li>`).join('') : '<li>No internal names available</li>'}
+                            ${transient.internal_names ? transient.internal_names.split(/[,;]\s*/).map(name => `<li><strong>${name.trim()}</strong></li>`).join('') : '<li>No internal names available</li>'}
                         </ul>
                         <p>Modern astronomical brokers (ALeRCE, Fink, Lasair) primarily process ZTF survey data, so classification and host galaxy information may not be available for this object.</p>
                         <p>Discovery and basic information is still available from TNS above.</p>
@@ -607,14 +641,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 contextualSection.innerHTML = `
                     <div class="no-ztf-notice">
                         <h4>🏠 Host Galaxy Information Not Available</h4>
-                        <p>Host galaxy analysis requires data from Lasair's Sherlock classifier, which processes ZTF survey objects. Since ${supernova.name} is not from ZTF, this information is not available through the current broker network.</p>
+                        <p>Host galaxy analysis requires data from Lasair's Sherlock classifier, which processes ZTF survey objects. Since ${transient.name} is not from ZTF, this information is not available through the current broker network.</p>
                     </div>
                 `;
                 
                 detectionSection.innerHTML = `
                     <div class="no-ztf-notice">
                         <h4>📊 Detection Statistics Not Available</h4>
-                        <p>Detection statistics require photometric data from ZTF-based brokers. Since ${supernova.name} was discovered by other surveys (${supernova.internal_names}), these statistics are not available.</p>
+                        <p>Detection statistics require photometric data from ZTF-based brokers. Since ${transient.name} was discovered by other surveys (${transient.internal_names}), these statistics are not available.</p>
                         <p>Basic discovery information is available in the Discovery Information section above.</p>
                     </div>
                 `;
@@ -635,7 +669,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             
             // Populate external links
-            populateBrokerFooter(supernova, raDecimal, decDecimal);
+            populateBrokerFooter(transient, raDecimal, decDecimal);
             
             // After validating coordinates, always show the Aladin viewer
             if (raDecimal !== null && decDecimal !== null) {
@@ -683,7 +717,7 @@ document.addEventListener('DOMContentLoaded', () => {
             
         } catch (error) {
             console.error('Error:', error);
-            showStatus('Error searching for supernova: ' + error.message, 'error');
+            showStatus('Error searching for transient: ' + error.message, 'error');
         }
     });
     
@@ -749,33 +783,33 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     // Function to populate object header
-    function populateObjectHeader(supernova) {
+    function populateObjectHeader(transient) {
         const objectHeader = document.getElementById('object-header');
         const contextDescSection = document.getElementById('context-description-section');
         objectHeader.innerHTML = `
-            <div class="object-name">${supernova.name}</div>
-            <div class="object-coordinates">RA: ${supernova.ra} | Dec: ${supernova.declination}</div>
+            <div class="object-name">${transient.name}</div>
+            <div class="object-coordinates">RA: ${transient.ra} | Dec: ${transient.declination}</div>
         `;
     }
     
     // Function to populate primary classification section
-    function populatePrimaryClassification(supernova) {
+    function populatePrimaryClassification(transient) {
         const primarySection = document.getElementById('primary-classification');
         
         let html = '<div class="primary-classification-display">';
         
         // Large spectroscopic type and redshift
-        if (supernova.type) {
+        if (transient.type) {
             html += `<div class="primary-type">
                 <div class="type-label">Spectroscopic Type</div>
-                <div class="type-value">${supernova.type}</div>
+                <div class="type-value">${transient.type}</div>
             </div>`;
         }
         
-        if (supernova.redshift && supernova.redshift !== 'null' && supernova.redshift !== '') {
+        if (transient.redshift && transient.redshift !== 'null' && transient.redshift !== '') {
             html += `<div class="primary-redshift">
                 <div class="redshift-label">Redshift</div>
-                <div class="redshift-value">z = ${supernova.redshift}</div>
+                <div class="redshift-value">z = ${transient.redshift}</div>
             </div>`;
         }
         
@@ -784,7 +818,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     // Function to populate discovery information section
-    function populateDiscoveryInformation(supernova) {
+    function populateDiscoveryInformation(transient) {
         const discoverySection = document.getElementById('discovery-info');
         
         let html = '<div class="discovery-info-grid">';
@@ -794,21 +828,21 @@ document.addEventListener('DOMContentLoaded', () => {
         html += '<h4>📅 Discovery Details</h4>';
         html += '<dl class="discovery-list">';
         
-        if (supernova.discoverydate && supernova.discoverydate !== 'null') {
-            html += `<dt>Discovery Date</dt><dd>${supernova.discoverydate}</dd>`;
+        if (transient.discoverydate && transient.discoverydate !== 'null') {
+            html += `<dt>Discovery Date</dt><dd>${transient.discoverydate}</dd>`;
         }
-        if (supernova.discoverymag && supernova.discoverymag !== 'null') {
-            html += `<dt>Discovery Magnitude</dt><dd>${supernova.discoverymag}`;
-            if (supernova.filter && supernova.filter !== 'null') {
-                html += ` (${supernova.filter})`;
+        if (transient.discoverymag && transient.discoverymag !== 'null') {
+            html += `<dt>Discovery Magnitude</dt><dd>${transient.discoverymag}`;
+            if (transient.filter && transient.filter !== 'null') {
+                html += ` (${transient.filter})`;
             }
             html += '</dd>';
         }
-        if (supernova.reporting_group && supernova.reporting_group !== 'null') {
-            html += `<dt>Reporting Group</dt><dd>${supernova.reporting_group}</dd>`;
+        if (transient.reporting_group && transient.reporting_group !== 'null') {
+            html += `<dt>Reporting Group</dt><dd>${transient.reporting_group}</dd>`;
         }
-        if (supernova.source_group && supernova.source_group !== 'null') {
-            html += `<dt>Source Group</dt><dd>${supernova.source_group}</dd>`;
+        if (transient.source_group && transient.source_group !== 'null') {
+            html += `<dt>Source Group</dt><dd>${transient.source_group}</dd>`;
         }
         
         html += '</dl></div>';
@@ -818,14 +852,14 @@ document.addEventListener('DOMContentLoaded', () => {
         html += '<h4>📚 References & IDs</h4>';
         html += '<dl class="discovery-list">';
         
-        if (supernova.internal_names && supernova.internal_names !== 'null') {
-            html += `<dt>Internal Names</dt><dd>${supernova.internal_names}</dd>`;
+        if (transient.internal_names && transient.internal_names !== 'null') {
+            html += `<dt>Internal Names</dt><dd>${transient.internal_names}</dd>`;
         }
-        if (supernova.Discovery_ADS_bibcode && supernova.Discovery_ADS_bibcode !== 'null') {
-            html += `<dt>Discovery Reference</dt><dd>${supernova.Discovery_ADS_bibcode}</dd>`;
+        if (transient.Discovery_ADS_bibcode && transient.Discovery_ADS_bibcode !== 'null') {
+            html += `<dt>Discovery Reference</dt><dd>${transient.Discovery_ADS_bibcode}</dd>`;
         }
-        if (supernova.Class_ADS_bibcodes && supernova.Class_ADS_bibcodes !== 'null') {
-            html += `<dt>Classification Reference</dt><dd>${supernova.Class_ADS_bibcodes}</dd>`;
+        if (transient.Class_ADS_bibcodes && transient.Class_ADS_bibcodes !== 'null') {
+            html += `<dt>Classification Reference</dt><dd>${transient.Class_ADS_bibcodes}</dd>`;
         }
         
         html += '</dl></div>';
@@ -1014,11 +1048,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     // Function to populate footer with broker links
-    function populateBrokerFooter(supernova, raDecimal, decDecimal) {
+    function populateBrokerFooter(transient, raDecimal, decDecimal) {
         const footer = document.getElementById('page-footer');
         const brokerLinksContainer = document.getElementById('broker-links');
         
-        if (!supernova || raDecimal === null || decDecimal === null) {
+        if (!transient || raDecimal === null || decDecimal === null) {
             footer.style.display = 'none';
             return;
         }
@@ -1026,7 +1060,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const brokerLinks = [];
         
         // TNS Link
-        const tnsUrl = `https://www.wis-tns.org/object/${encodeURIComponent(supernova.name)}`;
+        const tnsUrl = `https://www.wis-tns.org/object/${encodeURIComponent(transient.name)}`;
         brokerLinks.push({
             name: 'TNS',
             fullName: 'Transient Name Server',
@@ -1036,7 +1070,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         
         // ALeRCE Link
-        const alerceUrl = `https://alerce.online/object/${encodeURIComponent(supernova.name)}?ra=${raDecimal}&dec=${decDecimal}&radius=60`;
+        const alerceUrl = `https://alerce.online/object/${encodeURIComponent(transient.name)}?ra=${raDecimal}&dec=${decDecimal}&radius=60`;
         brokerLinks.push({
             name: 'ALeRCE',
             fullName: 'Automatic Learning for the Rapid Classification of Events',
@@ -1057,8 +1091,8 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // Fink Link (only if we have a ZTF ID)
         let ztfId = null;
-        if (supernova.internal_names) {
-            const internalNames = supernova.internal_names.split(/[,;]\s*/);
+        if (transient.internal_names) {
+            const internalNames = transient.internal_names.split(/[,;]\s*/);
             const ztfPattern = /^ZTF[0-9]{2}[a-z]{7}$/i;
             const foundZtfId = internalNames.find(name => ztfPattern.test(name.trim()));
             if (foundZtfId) {
@@ -1090,10 +1124,10 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         
         // SNAD Link
-        const snadUrl = `https://snad.space/transients/?ra=${raDecimal}&dec=${decDecimal}&r=0.05&name=${encodeURIComponent(supernova.name)}`;
+        const snadUrl = `https://snad.space/transients/?ra=${raDecimal}&dec=${decDecimal}&r=0.05&name=${encodeURIComponent(transient.name)}`;
         brokerLinks.push({
             name: 'SNAD',
-            fullName: 'Supernova Anomaly Detection',
+            fullName: 'Transient Anomaly Detection',
             url: snadUrl,
             description: 'Anomaly detection',
             color: '#6366f1'
@@ -1412,7 +1446,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Show loading state
         crossmatchSection.innerHTML = '<div class="crossmatch-loading">Loading catalog cross-matches...</div>';
         
-        // Get coordinates from the object header or supernova data
+        // Get coordinates from the object header or transient data
         const coordinatesElement = document.querySelector('.object-coordinates');
         if (!coordinatesElement) {
             crossmatchSection.innerHTML = '<div class="crossmatch-no-data">No coordinates available for cross-match queries.</div>';
@@ -1853,7 +1887,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 setTimeout(() => {
                     try {
                         const catalog = A.catalog({name: 'Target', sourceSize: 12, color: 'red'});
-                        catalog.addSources([A.source(ra, dec, {name: 'Supernova'})]);
+                        catalog.addSources([A.source(ra, dec, {name: 'Transient'})]);
                         aladin.addCatalog(catalog);
                     } catch (catalogError) {
                         console.warn('Could not add catalog marker:', catalogError);
@@ -2356,33 +2390,33 @@ document.addEventListener('DOMContentLoaded', () => {
     // Function to download photometry data as CSV
     async function downloadPhotometry() {
         try {
-            // Get the current supernova name and find ZTF ID
-            const supernovaNameInput = document.getElementById('supernova-name');
-            if (!supernovaNameInput || !supernovaNameInput.value) {
-                alert('Please search for a supernova first');
-                return;
-            }
-            
-            const searchName = supernovaNameInput.value.trim().toLowerCase().replace(/^sn\s+/, '');
-            let supernova = tnsCache.find(obj => {
-                const objName = obj.name.toLowerCase().replace(/^sn\s+/, '');
-                return objName === searchName || 
-                       (obj.internal_names && obj.internal_names.toLowerCase().includes(searchName));
-            });
-            
-            if (!supernova) {
-                supernova = getFallbackSupernovaData(searchName);
-            }
-            
-            if (!supernova || !supernova.internal_names) {
-                alert('No ZTF ID found for this object. Photometry download requires a ZTF ID.');
-                return;
-            }
-            
-            // Find ZTF ID
-            const internalNames = supernova.internal_names.split(/[,;]\s*/);
-            const ztfPattern = /^ZTF[0-9]{2}[a-z]{7}$/i;
-            const ztfId = internalNames.find(name => ztfPattern.test(name.trim()));
+                    // Get the current transient name and find ZTF ID
+        const transientNameInput = document.getElementById('transient-name');
+        if (!transientNameInput || !transientNameInput.value) {
+            alert('Please search for a transient first');
+            return;
+        }
+        
+        const searchName = transientNameInput.value.trim().toLowerCase().replace(/^sn\s+/, '');
+        let transient = tnsCache.find(obj => {
+            const objName = obj.name.toLowerCase().replace(/^sn\s+/, '');
+            return objName === searchName || 
+                   (obj.internal_names && obj.internal_names.toLowerCase().includes(searchName));
+        });
+        
+        if (!transient) {
+            transient = getFallbackTransientData(searchName);
+        }
+        
+        if (!transient || !transient.internal_names) {
+            alert('No ZTF ID found for this object. Photometry download requires a ZTF ID.');
+            return;
+        }
+        
+        // Find ZTF ID
+        const internalNames = transient.internal_names.split(/[,;]\s*/);
+        const ztfPattern = /^ZTF[0-9]{2}[a-z]{7}$/i;
+        const ztfId = internalNames.find(name => ztfPattern.test(name.trim()));
             
             if (!ztfId) {
                 alert('No ZTF ID found for this object. Photometry download requires a ZTF ID.');

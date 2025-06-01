@@ -26,7 +26,7 @@
     <div id="credentials-modal" class="credentials-modal">
         <div class="credentials-content">
             <h2>🔐 API Credentials Setup</h2>
-            <p>Welcome to the Supernova Meta-Broker! To access the latest TNS data and Lasair's advanced features, please enter your credentials below.</p>
+            <p>Welcome to the Transient Meta-Broker! To access the latest TNS data and Lasair's advanced features, please enter your credentials below.</p>
             
             <form id="credentials-form">
                 <div class="credential-section">
@@ -35,15 +35,15 @@
                     <ol class="credential-steps">
                         <li>Create an account at <a href="https://www.wis-tns.org/" target="_blank">wis-tns.org ↗</a></li>
                         <li>Verify your account via email</li>
-                        <li>Use your login username and password below</li>
+                        <li>Find your TNS ID and username from your profile page</li>
                     </ol>
                     <div class="input-group">
-                        <label for="tns-username">TNS Username:</label>
-                        <input type="text" id="tns-username" placeholder="Enter your TNS username (required for latest data)">
+                        <label for="tns-id">TNS ID:</label>
+                        <input type="number" id="tns-id" placeholder="Enter your TNS ID (e.g., 2633)">
                     </div>
                     <div class="input-group">
-                        <label for="tns-password">TNS Password:</label>
-                        <input type="password" id="tns-password" placeholder="Enter your TNS password (required for latest data)">
+                        <label for="tns-username">TNS Username:</label>
+                        <input type="text" id="tns-username" placeholder="Enter your TNS username (e.g., agagliano)">
                     </div>
                 </div>
 
@@ -68,7 +68,8 @@
                         <li>Credentials are <strong>only transmitted securely</strong> to official broker APIs (TNS, Lasair) when downloading data</li>
                         <li><strong>No credentials are ever logged, cached, or stored</strong> anywhere outside your browser</li>
                         <li>You can clear credentials anytime by clearing your browser data</li>
-                        <li>TNS credentials enable fresh daily data; without them you'll see cached <strong>supernova catalog data</strong> that may be outdated</li>
+                        <li>TNS credentials enable fresh daily data; without them you'll see cached <strong>transient catalog data</strong> that may be outdated</li>
+                        <li>TNS uses ID-based authentication - you need both your TNS ID number and username (no password required)</li>
                     </ul>
                 </div>
 
@@ -92,7 +93,7 @@
 
         <div class="search-section">
             <form id="search-form">
-                <input type="text" id="supernova-name" placeholder="Enter supernova name (e.g., SN 2023abc, 1987A, 2011fe)" required>
+                <input type="text" id="transient-name" placeholder="Enter transient name (e.g., SN 2023abc, 1987A, 2011fe)" required>
                 <button type="submit">Search</button>
             </form>
             <div id="search-status"></div>

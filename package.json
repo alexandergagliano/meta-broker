@@ -1,7 +1,7 @@
 {
-  "name": "supernova-meta-broker",
+  "name": "transient-meta-broker",
   "version": "1.0.0",
-  "description": "A simple web application that acts as a \"meta-broker\" for astrophysics and the study of supernovae. It allows you to search for a supernova by name and provides direct links to view the object across multiple astronomical data brokers.",
+  "description": "A simple web application that acts as a \"meta-broker\" for astrophysics and the study of transients. It allows you to search for a transient by name and provides direct links to view the object across multiple astronomical data brokers.",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
