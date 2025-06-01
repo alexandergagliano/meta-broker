@@ -66,14 +66,14 @@
                     <ul style="margin: 0.5rem 0; padding-left: 1.5rem; font-size: 0.9rem;">
                         <li>All credentials are stored <strong>only in your browser's local storage</strong> - never on our servers</li>
                         <li>Credentials are <strong>only transmitted securely</strong> to official broker APIs (TNS, Lasair) when downloading data</li>
-                        <li>No credentials are logged, cached, or stored anywhere outside your browser</li>
+                        <li><strong>No credentials are ever logged, cached, or stored</strong> anywhere outside your browser</li>
                         <li>You can clear credentials anytime by clearing your browser data</li>
-                        <li>TNS credentials enable fresh daily data; without them you'll see cached data that may be outdated</li>
+                        <li>TNS credentials enable fresh daily data; without them you'll see cached <strong>supernova catalog data</strong> that may be outdated</li>
                     </ul>
                 </div>
 
                 <div class="credential-actions">
-                    <button type="button" id="skip-credentials" class="btn-secondary">Use Cached Data</button>
+                    <button type="button" id="skip-credentials" class="btn-secondary">Skip - Use Cached TNS Data</button>
                     <button type="submit" class="btn-primary">Save & Download Latest</button>
                 </div>
             </form>
@@ -86,7 +86,7 @@
             <p>Search for transients across multiple astronomical brokers</p>
             <p class="database-info" id="database-info"></p>
             <div class="security-notice" style="background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 0.75rem; margin-top: 1rem; font-size: 0.875rem; color: #6c757d;">
-                Your API credentials are stored only in your browser and never on our servers.
+                🔒 Your API credentials are stored only in your browser and <strong>never cached or stored on our servers</strong>.
             </div>
         </header>
 

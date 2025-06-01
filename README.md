@@ -1,6 +1,6 @@
 # The Meta-Broker
 
-A simple web application that acts as a "meta-broker" for astrophysics and the study of transients. It allows you to search for a transient by name and provides direct links to view the object across multiple astronomical data brokers.
+A simple web application that acts as a "meta-broker" for studying transients on TNS and ZTF.
 
 ## Features
 
@@ -10,7 +10,10 @@ A simple web application that acts as a "meta-broker" for astrophysics and the s
   - TNS (Transient Name Server)
   - Antares
   - ALeRCE
-  - SNAD-Viewer
+  - Fink
+  - Lasair
+
+More to come!
 
 ## How to Use
 
