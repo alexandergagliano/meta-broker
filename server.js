@@ -60,7 +60,17 @@ async function parseCSV(filePath) {
     try {
         console.log('\n=== Starting CSV Parsing ===');
         const fileContent = fs.readFileSync(filePath, 'utf8');
-        const lines = fileContent.split(/\r?\n/).filter(line => line.trim());
+        return parseCSVFromString(fileContent);
+    } catch (error) {
+        console.error('Error in parseCSV:', error);
+        throw error;
+    }
+}
+
+async function parseCSVFromString(csvContent) {
+    try {
+        console.log('\n=== Starting CSV Parsing from String ===');
+        const lines = csvContent.split(/\r?\n/).filter(line => line.trim());
         if (lines.length < 2) throw new Error('CSV file has too few lines to process (expected at least 2).');
         const headerLine = lines[1]; 
         const headers = headerLine.split(',').map(h => h.trim().replace(/^"|"$/g, ''));
@@ -97,14 +107,18 @@ async function parseCSV(filePath) {
         console.log(`CSV Parsing complete. Total records processed: ${results.length}`);
         return results;
     } catch (error) {
-        console.error('Error in parseCSV:', error);
+        console.error('Error in parseCSVFromString:', error);
         throw error;
     }
 }
 
+// In-memory cache for serverless environment
+let inMemoryCache = null;
+let cacheTimestamp = null;
+
 async function downloadTNSData(tnsId = null, tnsUsername = null) {
     try {
-        console.log('Attempting to download TNS data...');
+        console.log('Attempting to download TNS data in serverless environment...');
         
         // Create dynamic user agent based on provided credentials
         let userAgent = 'tns_marker{"type": "user", "name":"metabroker"}'; // Generic fallback
@@ -112,8 +126,9 @@ async function downloadTNSData(tnsId = null, tnsUsername = null) {
             userAgent = `tns_marker{"tns_id":${tnsId},"type": "user", "name":"${tnsUsername}"}`;
         }
         
-        // For now, we're still using the public endpoint, but with proper user identification
-        // In the future, this could be enhanced to use authenticated endpoints if available
+        console.log('Using User-Agent:', userAgent);
+        
+        // Download ZIP file directly to memory (buffer)
         const response = await axios({
             method: 'POST',
             url: 'https://www.wis-tns.org/system/files/tns_public_objects/tns_public_objects.csv.zip',
@@ -121,21 +136,24 @@ async function downloadTNSData(tnsId = null, tnsUsername = null) {
                 'User-Agent': userAgent, 
                 'Accept': '*/*'
             },
-            responseType: 'stream'
+            responseType: 'arraybuffer'
         });
-        await pipeline(response.data, fs.createWriteStream(ZIP_FILE));
-        console.log('ZIP file downloaded successfully to:', ZIP_FILE);
-        const zip = new AdmZip(ZIP_FILE);
+        
+        console.log('ZIP file downloaded to memory, size:', response.data.byteLength);
+        
+        // Process ZIP in memory
+        const zip = new AdmZip(Buffer.from(response.data));
         const csvEntry = zip.getEntries().find(entry => entry.entryName.endsWith('.csv'));
         if (!csvEntry) throw new Error('No CSV file found in the downloaded ZIP.');
+        
         console.log('Found CSV file in ZIP:', csvEntry.entryName);
         const csvContent = zip.readAsText(csvEntry);
-        fs.writeFileSync(CSV_FILE, csvContent);
-        console.log('CSV file extracted and written to:', CSV_FILE);
-        const parsedResults = await parseCSV(CSV_FILE);
+        
+        // Parse CSV directly from memory
+        const parsedResults = await parseCSVFromString(csvContent);
         if (!Array.isArray(parsedResults) || parsedResults.length === 0) throw new Error('No valid results parsed from CSV');
         
-        // Add timestamp to cache for freshness checking
+        // Store in memory cache for this serverless function instance
         const cacheData = {
             last_updated: new Date().toISOString(),
             download_date: new Date().toISOString().split('T')[0], // YYYY-MM-DD format
@@ -143,9 +161,16 @@ async function downloadTNSData(tnsId = null, tnsUsername = null) {
             data: parsedResults
         };
         
-        fs.writeFileSync(CACHE_FILE, JSON.stringify(cacheData, null, 2));
-        console.log(`Cached ${parsedResults.length} objects to ${CACHE_FILE} with timestamp ${cacheData.last_updated}`);
-        return { success: true, message: `CSV file parsed and cached with ${parsedResults.length} objects`, timestamp: cacheData.last_updated };
+        inMemoryCache = cacheData;
+        cacheTimestamp = Date.now();
+        
+        console.log(`Processed ${parsedResults.length} objects and stored in memory cache`);
+        return { 
+            success: true, 
+            message: `CSV file parsed and cached with ${parsedResults.length} objects`, 
+            timestamp: cacheData.last_updated,
+            data: parsedResults
+        };
     } catch (error) {
         console.error('Error in downloadTNSData function:', error.message, error.stack);
         return { success: false, error: error.message };
@@ -197,18 +222,25 @@ app.get('/api/tns-data', async (req, res) => {
     });
     
     try {
+        // First check in-memory cache
+        if (inMemoryCache && inMemoryCache.data) {
+            console.log(`Serving data from memory cache. Objects: ${inMemoryCache.total_objects}`);
+            return res.json(inMemoryCache.data);
+        }
+        
+        // Then check file cache (for backwards compatibility)
         if (fs.existsSync(CACHE_FILE)) {
             const rawData = fs.readFileSync(CACHE_FILE);
             const cacheData = JSON.parse(rawData);
             
             // Check if this is the new format with metadata
             if (cacheData.data && Array.isArray(cacheData.data)) {
-                console.log(`Serving data from cache. Cache date: ${cacheData.download_date}, Objects: ${cacheData.total_objects}`);
+                console.log(`Serving data from file cache. Cache date: ${cacheData.download_date}, Objects: ${cacheData.total_objects}`);
                 // Return just the data array for compatibility with frontend
                 res.json(cacheData.data);
             } else if (Array.isArray(cacheData)) {
                 // Old format - directly an array
-                console.log('Serving data from cache (legacy format).');
+                console.log('Serving data from file cache (legacy format).');
                 res.json(cacheData);
             } else {
                 throw new Error('Invalid cache format');
@@ -242,6 +274,23 @@ app.get('/api/tns-cache-info', async (req, res) => {
     });
     
     try {
+        // First check in-memory cache
+        if (inMemoryCache && inMemoryCache.data) {
+            const today = new Date().toISOString().split('T')[0];
+            const isToday = inMemoryCache.download_date === today;
+            
+            return res.json({
+                exists: true,
+                download_date: inMemoryCache.download_date,
+                last_updated: inMemoryCache.last_updated,
+                total_objects: inMemoryCache.total_objects,
+                is_current: isToday,
+                age_days: Math.floor((new Date() - new Date(inMemoryCache.download_date)) / (1000 * 60 * 60 * 24)),
+                source: 'memory'
+            });
+        }
+        
+        // Then check file cache
         if (fs.existsSync(CACHE_FILE)) {
             const rawData = fs.readFileSync(CACHE_FILE);
             const cacheData = JSON.parse(rawData);
@@ -256,7 +305,8 @@ app.get('/api/tns-cache-info', async (req, res) => {
                     last_updated: cacheData.last_updated,
                     total_objects: cacheData.total_objects,
                     is_current: isToday,
-                    age_days: Math.floor((new Date() - new Date(cacheData.download_date)) / (1000 * 60 * 60 * 24))
+                    age_days: Math.floor((new Date() - new Date(cacheData.download_date)) / (1000 * 60 * 60 * 24)),
+                    source: 'file'
                 });
             } else {
                 // Legacy format
@@ -271,7 +321,8 @@ app.get('/api/tns-cache-info', async (req, res) => {
                     total_objects: Array.isArray(cacheData) ? cacheData.length : 'unknown',
                     is_current: fileDate === today,
                     age_days: Math.floor((new Date() - stats.mtime) / (1000 * 60 * 60 * 24)),
-                    format: 'legacy'
+                    format: 'legacy',
+                    source: 'file'
                 });
             }
         } else {
