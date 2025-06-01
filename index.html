@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Meta-Broker</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <!-- Aladin Lite v3 CSS -->
+    <link rel="stylesheet" href="https://aladin.cds.unistra.fr/AladinLite/api/v3/latest/aladin.css" />
+    <!-- Plotly.js for light curve plotting -->
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+    <!-- Aladin Lite v3 JS -->
+    <script type="text/javascript" src="https://aladin.cds.unistra.fr/AladinLite/api/v3/latest/aladin.js" charset="utf-8"></script>
+</head>
+<body>
+    <div id="loading-screen" class="loading-screen">
+        <div class="loading-content">
+            <div class="loading-spinner"></div>
+            <p>Loading TNS Database...</p>
+            <p class="loading-status" id="loading-status"></p>
+            <p class="database-info" id="database-info"></p>
+        </div>
+    </div>
+
+    <!-- Credentials Modal -->
+    <div id="credentials-modal" class="credentials-modal">
+        <div class="credentials-content">
+            <h2>🔐 API Credentials Setup</h2>
+            <p>Welcome to the Supernova Meta-Broker! To access the latest TNS data and Lasair's advanced features, please enter your credentials below.</p>
+            
+            <form id="credentials-form">
+                <div class="credential-section">
+                    <h3>🌟 TNS (Transient Name Server)</h3>
+                    <p class="credential-description">TNS provides the official transient database. Your credentials allow us to download the latest daily data. To get your credentials:</p>
+                    <ol class="credential-steps">
+                        <li>Create an account at <a href="https://www.wis-tns.org/" target="_blank">wis-tns.org ↗</a></li>
+                        <li>Verify your account via email</li>
+                        <li>Use your login username and password below</li>
+                    </ol>
+                    <div class="input-group">
+                        <label for="tns-username">TNS Username:</label>
+                        <input type="text" id="tns-username" placeholder="Enter your TNS username (required for latest data)">
+                    </div>
+                    <div class="input-group">
+                        <label for="tns-password">TNS Password:</label>
+                        <input type="password" id="tns-password" placeholder="Enter your TNS password (required for latest data)">
+                    </div>
+                </div>
+
+                <div class="credential-section">
+                    <h3>🔍 Lasair Broker</h3>
+                    <p class="credential-description">Lasair provides Sherlock contextual classifications and catalog cross-matches, but requires authentication for most queries. To get your API token:</p>
+                    <ol class="credential-steps">
+                        <li>Create an account at <a href="https://lasair-ztf.lsst.ac.uk/" target="_blank">lasair-ztf.lsst.ac.uk ↗</a></li>
+                        <li>Activate your account via email verification</li>
+                        <li>Log in and go to your profile to find your API token</li>
+                    </ol>
+                    <div class="input-group">
+                        <label for="lasair-token">Lasair API Token:</label>
+                        <input type="password" id="lasair-token" placeholder="Enter your Lasair API token (optional)">
+                    </div>
+                </div>
+
+                <div class="credential-note">
+                    <p><strong>🔒 Privacy & Security:</strong></p>
+                    <ul style="margin: 0.5rem 0; padding-left: 1.5rem; font-size: 0.9rem;">
+                        <li>All credentials are stored <strong>only in your browser's local storage</strong> - never on our servers</li>
+                        <li>Credentials are <strong>only transmitted securely</strong> to official broker APIs (TNS, Lasair) when downloading data</li>
+                        <li>No credentials are logged, cached, or stored anywhere outside your browser</li>
+                        <li>You can clear credentials anytime by clearing your browser data</li>
+                        <li>TNS credentials enable fresh daily data; without them you'll see cached data that may be outdated</li>
+                    </ul>
+                </div>
+
+                <div class="credential-actions">
+                    <button type="button" id="skip-credentials" class="btn-secondary">Use Cached Data</button>
+                    <button type="submit" class="btn-primary">Save & Download Latest</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="container">
+        <header>
+            <h1>The Meta-Broker</h1>
+            <p>Search for transients across multiple astronomical brokers</p>
+            <p class="database-info" id="database-info"></p>
+            <div class="security-notice" style="background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 0.75rem; margin-top: 1rem; font-size: 0.875rem; color: #6c757d;">
+                Your API credentials are stored only in your browser and never on our servers.
+            </div>
+        </header>
+
+        <div class="search-section">
+            <form id="search-form">
+                <input type="text" id="supernova-name" placeholder="Enter supernova name (e.g., SN 2023abc, 1987A, 2011fe)" required>
+                <button type="submit">Search</button>
+            </form>
+            <div id="search-status"></div>
+        </div>
+
+        <div id="results-container">
+            <!-- Object Header with name and coordinates -->
+            <div class="object-header" id="object-header"></div>
+            
+            <!-- Context Description Section - Large at top -->
+            <div class="context-description-section" id="context-description-section" style="display: none;">
+                <div class="section-header">
+                    <svg class="section-icon" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+                    </svg>
+                    Contextual Summary
+                </div>
+                <div class="context-description-content" id="context-description"></div>
+            </div>
+            
+            <!-- Primary Classification Section - Large at top -->
+            <div class="primary-classification-section">
+                <div class="section-header">
+                    <svg class="section-icon" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+                    </svg>
+                    Primary Classification
+                </div>
+                <div class="primary-classification-content" id="primary-classification"></div>
+            </div>
+
+            <!-- Classification Details Section -->
+            <div class="ml-classifications-section">
+                <div class="section-header">
+                    <svg class="section-icon" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/>
+                    </svg>
+                    Classification Details
+                </div>
+                <div class="ml-classifications-content" id="ml-classifications"></div>
+            </div>
+
+            <!-- Host Galaxy Section - Front and center -->
+            <div class="contextual-analysis-section">
+                <div class="section-header">
+                    <svg class="section-icon" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
+                        <circle cx="12" cy="5" r="1"/>
+                        <circle cx="8" cy="8" r="0.5"/>
+                        <circle cx="16" cy="7" r="0.8"/>
+                        <circle cx="10" cy="12" r="0.6"/>
+                        <circle cx="15" cy="11" r="0.4"/>
+                        <circle cx="6" cy="14" r="0.3"/>
+                        <circle cx="18" cy="13" r="0.5"/>
+                    </svg>
+                    Host Galaxy
+                </div>
+                <div class="host-galaxy-content">
+                    <div class="host-galaxy-grid">
+                        <div class="sky-view-container">
+                            <h4>Sky View</h4>
+                            <div id="aladin-lite-div"></div>
+                        </div>
+                        <div class="contextual-analysis-container">
+                            <div id="contextual-analysis"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Light Curve & Detection Statistics Section -->
+            <div class="lightcurve-stats-section">
+                <div class="section-header">
+                    <svg class="section-icon" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99z"/>
+                        <circle cx="5" cy="16" r="1"/>
+                        <circle cx="11" cy="10" r="1"/>
+                        <circle cx="17" cy="6" r="1"/>
+                        <circle cx="21" cy="4" r="1"/>
+                    </svg>
+                    Light Curve & Detection Statistics
+                </div>
+                <div class="lightcurve-stats-content">
+                    <div class="lightcurve-stats-vertical">
+                        <div class="lightcurve-container">
+                            <h4>Photometry</h4>
+                            <div id="lightcurvePlot"></div>
+                            <div class="download-controls">
+                                <button id="downloadPhotometryBtn">Download Photometry (CSV)</button>
+                            </div>
+                        </div>
+                        <div class="detection-stats-container">
+                            <h4>Detection Statistics</h4>
+                            <div id="detection-stats"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Discovery Information Section -->
+            <div class="discovery-info-section">
+                <div class="section-header">
+                    <svg class="section-icon" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.516 6.516 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7.01 5 5 7.01 5 9.5S7.01 14 9.5 14 14 11.99 14 9.5 11.99 5 9.5 5z"/>
+                    </svg>
+                    Discovery Information
+                </div>
+                <div class="discovery-info-content" id="discovery-info"></div>
+            </div>
+
+            <!-- Cross-match Data Section -->
+            <div class="crossmatch-section">
+                <div class="section-header">
+                    <svg class="section-icon" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3l1.5 3h3l-2.5 2 1 3-3-2-3 2 1-3-2.5-2h3L12 5z"/>
+                        <circle cx="18" cy="6" r="1.5"/>
+                        <circle cx="20" cy="10" r="1"/>
+                        <circle cx="19" cy="15" r="1"/>
+                        <circle cx="4" cy="8" r="1"/>
+                        <circle cx="6" cy="18" r="1.5"/>
+                    </svg>
+                    Catalog Cross-matches
+                </div>
+                <div class="crossmatch-content" id="crossmatch-data"></div>
+            </div>
+
+            <!-- Tags and Annotations Section - Near bottom -->
+            <div class="tags-annotations-section">
+                <div class="section-header">
+                    <svg class="section-icon" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M17.63 5.84C17.27 5.33 16.67 5 16 5L5 5.01C3.9 5.01 3 5.9 3 7v10c0 1.1.9 1.99 2 1.99L16 19c.67 0 1.27-.33 1.63-.84L22 12l-4.37-6.16z"/>
+                    </svg>
+                    Tags & Annotations
+                </div>
+                <div class="tags-annotations-content" id="tags-annotations"></div>
+            </div>
+
+            <!-- Hidden containers for broker data collection -->
+            <div style="display: none;">
+                <div id="alerce-container"></div>
+                <div id="antares-container"></div>
+                <div id="fink-container"></div>
+                <div id="lasair-container"></div>
+            </div>
+        </div>
+        
+        <!-- Page Footer with Broker Links -->
+        <footer class="page-footer" id="page-footer" style="display: none;">
+            <div class="footer-content">
+                <h3>View on Original Brokers</h3>
+                <div class="broker-links-grid" id="broker-links"></div>
+                <div class="footer-note">
+                    <p>Links open the current object on each broker's website for detailed analysis and additional data.</p>
+                </div>
+            </div>
+        </footer>
+    </div>
+
+    <script src="js/app.js"></script>
+    
+    <!-- Copyright Notice -->
+    <div style="text-align: center; padding: 2rem 1rem 1rem; margin-top: 3rem; border-top: 1px solid #e9ecef; color: #6c757d; font-size: 0.875rem;">
+        <p>© <a href="https://alexandergagliano.github.io/" target="_blank" style="color: #6c757d; text-decoration: none;">Alex Gagliano</a>, 2025</p>
+    </div>
+</body>
+</html> 
