@@ -5,8 +5,15 @@ from urllib.parse import urlencode
 
 def handler(request):
     """
-    Vercel serverless function to handle broker API requests.
-    Replaces the subprocess broker_client.py calls.
+    Broker API handler for the Transient Meta-Broker.
+
+    Handles requests to various astronomical broker services:
+    - ALeRCE
+    - Antares  
+    - Fink
+    - Lasair
+
+    Docker deployment handler for broker API requests.
     """
     # Set CORS headers
     headers = {

@@ -1,22 +1,32 @@
-import os
-import requests
-import json
-from urllib.parse import urlencode
+"""
+TNS Data API handler for the Transient Meta-Broker.
 
-def handler(request):
+Docker deployment handler to get TNS data with persistent file caching.
+"""
+
+import json
+import csv
+import os
+from urllib.parse import parse_qs
+
+# Define paths relative to project root
+CACHE_FILE = 'tns_cache.json'
+
+def handler(event, context=None):
     """
-    Vercel serverless function to get TNS data.
-    This replaces the problematic subprocess approach.
+    Handler function to get TNS data from cache or demo data.
+    Returns cached TNS data if available, otherwise returns demo dataset.
     """
-    # Set CORS headers
+    
+    # CORS headers for browser compatibility
     headers = {
         'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
         'Content-Type': 'application/json'
     }
     
-    if request.method == 'OPTIONS':
+    if event.method == 'OPTIONS':
         return {
             'statusCode': 200,
             'headers': headers,
@@ -24,9 +34,19 @@ def handler(request):
         }
     
     try:
-        # For now, return a simple fallback response
-        # In production, you could use external storage (like Vercel's blob storage)
-        fallback_data = [
+        # Try to read from cache file
+        if os.path.exists(CACHE_FILE):
+            with open(CACHE_FILE, 'r') as f:
+                tns_data = json.load(f)
+            
+            return {
+                'statusCode': 200,
+                'headers': headers,
+                'body': json.dumps(tns_data)
+            }
+        
+        # If no cache, return demo data (fallback)
+        demo_data = [
             {
                 "name": "SN2024abc",
                 "ra": "12.34567",
@@ -44,7 +64,7 @@ def handler(request):
         return {
             'statusCode': 200,
             'headers': headers,
-            'body': json.dumps(fallback_data)
+            'body': json.dumps(demo_data)
         }
         
     except Exception as e:

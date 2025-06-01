@@ -20,8 +20,18 @@ A containerized web application for searching and analyzing astronomical transie
 - **Deployment**: Docker containers with nginx reverse proxy
 - **Storage**: Persistent volumes for cache and configuration data
 
-## Quick Start (Docker)
+## Quick Start (One-Command Deployment)
 
+### For Linode/VPS Deployment:
+```bash
+# Clone and run deployment script
+git clone https://github.com/yourusername/supernova-meta-broker.git
+cd supernova-meta-broker
+chmod +x deploy.sh
+./deploy.sh
+```
+
+### For Local Development:
 ```bash
 # Clone and setup
 git clone https://github.com/yourusername/supernova-meta-broker.git
@@ -35,7 +45,7 @@ docker-compose up -d
 docker-compose logs -f
 ```
 
-Visit http://localhost:3000 to access the application.
+The deployment script handles everything: Docker installation, SSL certificates, domain configuration, firewall setup, and monitoring.
 
 ## Production Deployment
 
