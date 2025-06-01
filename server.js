@@ -31,8 +31,8 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Configure CORS for production and development
 const allowedOrigins = isDevelopment 
-    ? ['http://localhost:3000', `https://${domain}`, `http://${domain}`]
-    : [`https://${domain}`, `http://${domain}`];
+    ? ['http://localhost:3000', `https://${domain}`, `http://${domain}`, `https://www.${domain}`, `http://www.${domain}`]
+    : [`https://${domain}`, `http://${domain}`, `https://www.${domain}`, `http://www.${domain}`];
 
 app.use(cors({
     origin: function (origin, callback) {
@@ -129,14 +129,22 @@ async function downloadTNSData(tnsId = null, tnsUsername = null) {
         console.log('Using User-Agent:', userAgent);
         
         // Download ZIP file directly to memory (buffer)
+        console.log('Making request to TNS with headers:', {
+            'User-Agent': userAgent,
+            'Accept': '*/*'
+        });
+        
         const response = await axios({
             method: 'POST',
             url: 'https://www.wis-tns.org/system/files/tns_public_objects/tns_public_objects.csv.zip',
             headers: { 
                 'User-Agent': userAgent, 
-                'Accept': '*/*'
+                'Accept': '*/*',
+                'Content-Type': 'application/x-www-form-urlencoded'
             },
-            responseType: 'arraybuffer'
+            responseType: 'arraybuffer',
+            timeout: 30000, // 30 second timeout
+            maxRedirects: 5
         });
         
         console.log('ZIP file downloaded to memory, size:', response.data.byteLength);

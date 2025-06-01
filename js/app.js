@@ -475,8 +475,12 @@ document.addEventListener('DOMContentLoaded', () => {
                         loadingStatus.textContent = `TNS download failed: ${errorResult.error || 'Network error'}. Will use fallback data for searches.`;
                     }
                 } catch (error) {
-                    console.warn('Error downloading fresh TNS data:', error);
-                    loadingStatus.textContent = 'Using cached TNS data (connection error)...';
+                    console.error('Error downloading fresh TNS data:', error);
+                    if (error.name === 'TypeError' && error.message.includes('CORS')) {
+                        loadingStatus.textContent = 'CORS error detected - using demo data. Please check server logs.';
+                    } else {
+                        loadingStatus.textContent = `Connection error: ${error.message}. Using demo data.`;
+                    }
                 }
             }
             
