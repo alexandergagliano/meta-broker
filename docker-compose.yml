@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  meta-broker:
+    build: .
+    container_name: meta-broker
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DOMAIN=your-domain.com  # Replace with your actual domain
+    volumes:
+      # Persistent cache storage
+      - ./data:/app/data
+      # Optional: Bind mount for logs
+      - ./logs:/app/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    # Resource limits to prevent OOM
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
+
+  # Optional: Nginx reverse proxy
+  nginx:
+    image: nginx:alpine
+    container_name: meta-broker-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro  # SSL certificates
+    depends_on:
+      - meta-broker
+    profiles:
+      - nginx  # Only start with --profile nginx
+
+volumes:
+  data:
+  logs: 

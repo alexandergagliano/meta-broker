@@ -1,0 +1,70 @@
+# Git
+.git
+.gitignore
+
+# Node.js
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+.venv
+venv/
+
+# Logs
+logs
+*.log
+
+# Cache and temporary files
+.cache
+.tmp
+.temp
+tns_*.json
+tns_*.zip
+tns_*.csv
+
+# Editor files
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+dist
+build
+
+# Documentation
+README.md
+DEPLOYMENT.md
+docs/
+
+# Development files
+.env.local
+.env.development
+docker-compose.override.yml
+
+# SSL certificates (copied separately if needed)
+ssl/
+
+# Data directories (mounted as volumes)
+data/
+logs/
+
+# Vercel specific (no longer needed)
+.vercel
+vercel.json
+
+# Package lock for other package managers
+yarn.lock
+pnpm-lock.yaml 

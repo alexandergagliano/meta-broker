@@ -1,254 +1,340 @@
-# Deployment Guide for themetabroker.org
+# Transient Meta-Broker Deployment Guide
 
-This guide covers deploying The Meta-Broker to production at themetabroker.org.
+This guide covers deploying the Transient Meta-Broker application using Docker on a Linode server. The application requires persistent storage and sufficient resources to handle the full TNS database (~100MB CSV with 100,000+ transients).
 
-## Quick Start for Production
+## Prerequisites
 
-1. **Set up your server environment:**
-   ```bash
-   # Copy environment template
-   cp .env.example .env
-   
-   # Edit .env file to set production values
-   # Set NODE_ENV=production
-   # Set DOMAIN=themetabroker.org
-   ```
+- **Linode Server**: Minimum 2GB RAM, 20GB storage
+- **Docker & Docker Compose**: Installed on your server
+- **Domain Name**: Pointed to your server's IP address
+- **SSL Certificate**: For HTTPS (optional but recommended)
 
-2. **Install dependencies:**
-   ```bash
-   npm install
-   ```
+## Quick Start
 
-3. **Set up Python environment:**
-   ```bash
-   python3 -m venv venv
-   source venv/bin/activate
-   pip install -r requirements.txt  # You'll need to create this if it doesn't exist
-   ```
+### 1. Server Setup
 
-4. **Start in production mode:**
-   ```bash
-   # Option 1: Use the production script
-   ./start-production.sh
-   
-   # Option 2: Set environment variables manually
-   NODE_ENV=production DOMAIN=themetabroker.org PORT=80 node server.js
-   ```
+```bash
+# Update system
+sudo apt update && sudo apt upgrade -y
 
-## Environment Configuration
+# Install Docker
+curl -fsSL https://get.docker.com -o get-docker.sh
+sudo sh get-docker.sh
+sudo usermod -aG docker $USER
 
-The application automatically detects its environment and configures itself accordingly:
+# Install Docker Compose
+sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+sudo chmod +x /usr/local/bin/docker-compose
 
-- **Development**: Allows localhost origins, shows detailed error messages
-- **Production**: Restricts origins to your domain, minimal error exposure
+# Log out and back in for group changes to take effect
+```
+
+### 2. Clone and Configure
+
+```bash
+# Clone the repository
+git clone https://github.com/yourusername/supernova-meta-broker.git
+cd supernova-meta-broker
+
+# Create required directories
+mkdir -p data logs ssl
+
+# Configure your domain in docker-compose.yml
+sed -i 's/your-domain.com/your-actual-domain.com/g' docker-compose.yml
+sed -i 's/your-domain.com/your-actual-domain.com/g' nginx.conf
+```
+
+### 3. SSL Certificate (Recommended)
+
+#### Option A: Let's Encrypt (Recommended)
+```bash
+# Install certbot
+sudo apt install certbot
+
+# Get certificate
+sudo certbot certonly --standalone -d your-domain.com -d www.your-domain.com
+
+# Copy certificates
+sudo cp /etc/letsencrypt/live/your-domain.com/fullchain.pem ./ssl/cert.pem
+sudo cp /etc/letsencrypt/live/your-domain.com/privkey.pem ./ssl/key.pem
+sudo chown $USER:$USER ./ssl/*.pem
+```
+
+#### Option B: Self-Signed (Development)
+```bash
+# Generate self-signed certificate
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+    -keyout ./ssl/key.pem \
+    -out ./ssl/cert.pem \
+    -subj "/C=US/ST=State/L=City/O=Organization/CN=your-domain.com"
+```
+
+### 4. Deploy
+
+#### Simple Deployment (HTTP only)
+```bash
+# Build and start the application
+docker-compose up -d meta-broker
+
+# View logs
+docker-compose logs -f meta-broker
+```
+
+#### Full Deployment (with HTTPS)
+```bash
+# Build and start with nginx reverse proxy
+docker-compose --profile nginx up -d
+
+# View logs
+docker-compose logs -f
+```
+
+### 5. Verify Deployment
+
+```bash
+# Check application health
+curl http://localhost:3000/
+
+# Check with domain (if using nginx)
+curl https://your-domain.com/
+
+# Check TNS cache info
+curl https://your-domain.com/api/tns-cache-info
+```
+
+## Configuration
 
 ### Environment Variables
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `NODE_ENV` | `development` | Set to `production` for live deployment |
-| `DOMAIN` | `themetabroker.org` | Your domain name |
-| `PORT` | `3000` | Server port (hosting providers usually set this) |
+Edit `docker-compose.yml` to customize:
 
-## Hosting Provider Setup
-
-### Generic Linux Server / VPS
-
-1. **Install Node.js and Python:**
-   ```bash
-   # Ubuntu/Debian
-   sudo apt update
-   sudo apt install nodejs npm python3 python3-pip python3-venv
-   
-   # CentOS/RHEL
-   sudo yum install nodejs npm python3 python3-pip
-   ```
-
-2. **Clone your code and set up:**
-   ```bash
-   git clone <your-repo> /var/www/themetabroker
-   cd /var/www/themetabroker
-   npm install
-   python3 -m venv venv
-   source venv/bin/activate
-   pip install alerce requests pandas numpy astropy
-   ```
-
-3. **Set up reverse proxy (Nginx example):**
-   ```nginx
-   server {
-       listen 80;
-       server_name themetabroker.org www.themetabroker.org;
-       
-       location / {
-           proxy_pass http://localhost:3000;
-           proxy_http_version 1.1;
-           proxy_set_header Upgrade $http_upgrade;
-           proxy_set_header Connection 'upgrade';
-           proxy_set_header Host $host;
-           proxy_set_header X-Real-IP $remote_addr;
-           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-           proxy_set_header X-Forwarded-Proto $scheme;
-           proxy_cache_bypass $http_upgrade;
-       }
-   }
-   ```
-
-4. **Set up systemd service:**
-   ```ini
-   # /etc/systemd/system/metabroker.service
-   [Unit]
-   Description=The Meta-Broker
-   After=network.target
-   
-   [Service]
-   Type=simple
-   User=www-data
-   WorkingDirectory=/var/www/themetabroker
-   Environment=NODE_ENV=production
-   Environment=DOMAIN=themetabroker.org
-   Environment=PORT=3000
-   ExecStart=/usr/bin/node server.js
-   Restart=on-failure
-   
-   [Install]
-   WantedBy=multi-user.target
-   ```
-
-### Heroku
-
-1. **Create Procfile:**
-   ```
-   web: NODE_ENV=production DOMAIN=themetabroker.org node server.js
-   ```
-
-2. **Set buildpacks:**
-   ```bash
-   heroku buildpacks:add heroku/nodejs
-   heroku buildpacks:add heroku/python
-   ```
-
-3. **Configure domain:**
-   ```bash
-   heroku domains:add themetabroker.org
-   heroku domains:add www.themetabroker.org
-   ```
-
-### Vercel
-
-1. **Create vercel.json:**
-   ```json
-   {
-     "version": 2,
-     "builds": [
-       {
-         "src": "server.js",
-         "use": "@vercel/node"
-       }
-     ],
-     "routes": [
-       {
-         "src": "/(.*)",
-         "dest": "/server.js"
-       }
-     ],
-     "env": {
-       "NODE_ENV": "production",
-       "DOMAIN": "themetabroker.org"
-     }
-   }
-   ```
-
-### DigitalOcean App Platform
-
-1. **Create .do/app.yaml:**
-   ```yaml
-   name: metabroker
-   services:
-   - name: web
-     source_dir: /
-     github:
-       repo: <your-repo>
-       branch: main
-     run_command: NODE_ENV=production DOMAIN=themetabroker.org node server.js
-     environment_slug: node-js
-     instance_count: 1
-     instance_size_slug: basic-xxs
-     domains:
-     - domain: themetabroker.org
-     - domain: www.themetabroker.org
-   ```
-
-## DNS Configuration
-
-Point your domain to your hosting provider:
-
-1. **For server/VPS hosting:**
-   - A record: `themetabroker.org` → `YOUR_SERVER_IP`
-   - CNAME record: `www.themetabroker.org` → `themetabroker.org`
-
-2. **For platform hosting (Heroku, Vercel, etc.):**
-   - Follow your platform's DNS configuration guide
-   - Usually involves CNAME records pointing to platform subdomains
-
-## SSL Certificate
-
-Most hosting providers offer automatic SSL. For manual setup:
-
-```bash
-# Using Certbot/Let's Encrypt
-sudo certbot --nginx -d themetabroker.org -d www.themetabroker.org
+```yaml
+environment:
+  - NODE_ENV=production
+  - PORT=3000
+  - DOMAIN=your-domain.com
 ```
 
-## Application Features
+### Resource Limits
 
-The application automatically handles:
-- **CORS configuration**: Allows your domain in production, localhost in development
-- **API endpoints**: All API calls use relative URLs that work on any domain
-- **Static file serving**: CSS, JS, and assets served correctly
-- **Error handling**: Production-appropriate error messages
+The default configuration allocates:
+- **Memory**: 2GB limit, 1GB reservation
+- **Storage**: Persistent volumes for cache and logs
 
-## Monitoring
+For high-traffic deployments, increase memory:
 
-Check server status:
+```yaml
+deploy:
+  resources:
+    limits:
+      memory: 4G
+    reservations:
+      memory: 2G
+```
+
+### Persistent Storage
+
+Data is stored in:
+- `./data/tns_cache.json`: TNS database cache
+- `./logs/`: Application logs
+
+## TNS Database Management
+
+### Initial Download
+
+1. Visit your deployed application
+2. Enter your TNS credentials:
+   - TNS ID: Your numeric TNS user ID
+   - TNS Username: Your TNS username
+3. Click "Save & Download Fresh Data"
+4. Wait 2-5 minutes for the full database download (~100MB)
+
+### Cache Management
+
 ```bash
-# View logs
-tail -f /var/log/nginx/access.log
-journalctl -u metabroker -f
+# Check cache status
+curl https://your-domain.com/api/tns-cache-info
 
-# Check if server is running
-curl -I https://themetabroker.org
+# View cache file size
+ls -lh ./data/tns_cache.json
+
+# Clear cache (force fresh download)
+rm ./data/tns_cache.json
+docker-compose restart meta-broker
+```
+
+### Automatic Updates
+
+Add to crontab for daily TNS updates:
+
+```bash
+# Edit crontab
+crontab -e
+
+# Add line for daily update at 2 AM
+0 2 * * * curl -X POST -H "Content-Type: application/json" -d '{"tns_id":"YOUR_ID","tns_username":"YOUR_USERNAME"}' https://your-domain.com/api/update-tns
+```
+
+## Monitoring & Maintenance
+
+### View Logs
+
+```bash
+# Application logs
+docker-compose logs -f meta-broker
+
+# Nginx logs (if using)
+docker-compose logs -f nginx
+
+# System resource usage
+docker stats
+```
+
+### Health Checks
+
+The application includes built-in health checks:
+
+```bash
+# Check container health
+docker ps
+
+# Manual health check
+curl -f http://localhost:3000/ || echo "Health check failed"
+```
+
+### Backup
+
+```bash
+# Backup TNS cache
+cp ./data/tns_cache.json ./data/tns_cache_backup_$(date +%Y%m%d).json
+
+# Backup entire data directory
+tar -czf meta-broker-backup-$(date +%Y%m%d).tar.gz ./data ./logs
 ```
 
 ## Troubleshooting
 
 ### Common Issues
 
-1. **CORS errors**: Check that `DOMAIN` environment variable matches your actual domain
-2. **Python broker errors**: Ensure Python dependencies are installed in the virtual environment
-3. **Port conflicts**: Make sure your chosen port isn't used by another service
-4. **File permissions**: Ensure the application can read/write the TNS cache file
-
-### Debug Mode
-
-To run with debug output:
+#### 1. TNS Download Timeout
 ```bash
-NODE_ENV=development DOMAIN=themetabroker.org node server.js
+# Check logs for timeout errors
+docker-compose logs meta-broker | grep -i timeout
+
+# Increase timeout in server.js if needed
 ```
 
-This enables additional console logging and more detailed error messages.
+#### 2. Memory Issues
+```bash
+# Check memory usage
+docker stats meta-broker
 
-## Security Notes
+# Increase memory limit in docker-compose.yml
+```
 
-- User credentials are never stored on the server - only in browser localStorage
-- API tokens are transmitted securely to official broker APIs only
-- Production mode limits error message exposure
-- All external API calls go through server-side proxies
+#### 3. SSL Certificate Issues
+```bash
+# Check certificate validity
+openssl x509 -in ./ssl/cert.pem -text -noout
+
+# Renew Let's Encrypt certificate
+sudo certbot renew
+```
+
+#### 4. Permission Issues
+```bash
+# Fix data directory permissions
+sudo chown -R $USER:$USER ./data ./logs
+
+# Fix SSL permissions
+sudo chmod 600 ./ssl/key.pem
+sudo chmod 644 ./ssl/cert.pem
+```
+
+### Performance Optimization
+
+#### 1. Enable SSD Storage (Linode)
+- Use Linode's high-performance SSD storage
+- Mount at `/var/lib/docker` for better container performance
+
+#### 2. Optimize Memory
+```yaml
+# Add to docker-compose.yml
+services:
+  meta-broker:
+    environment:
+      - NODE_OPTIONS="--max-old-space-size=4096"
+```
+
+#### 3. Enable Nginx Caching
+```nginx
+# Add to nginx.conf
+proxy_cache_path /var/cache/nginx levels=1:2 keys_zone=cache:10m max_size=1g inactive=60m;
+```
+
+## Security
+
+### Firewall Configuration
+
+```bash
+# Allow SSH, HTTP, and HTTPS
+sudo ufw allow 22
+sudo ufw allow 80
+sudo ufw allow 443
+sudo ufw enable
+```
+
+### Regular Updates
+
+```bash
+# Update Docker images
+docker-compose pull
+docker-compose up -d
+
+# Update system packages
+sudo apt update && sudo apt upgrade -y
+```
+
+### SSL Certificate Renewal
+
+```bash
+# Add to crontab for automatic renewal
+0 0 1 * * sudo certbot renew --quiet && docker-compose restart nginx
+```
+
+## Production Checklist
+
+- [ ] Server has sufficient resources (2GB+ RAM, 20GB+ storage)
+- [ ] Domain DNS points to server IP
+- [ ] SSL certificate installed and valid
+- [ ] Firewall properly configured
+- [ ] TNS credentials tested and working
+- [ ] Database successfully downloaded and cached
+- [ ] Health checks passing
+- [ ] Backups configured
+- [ ] Monitoring in place
+- [ ] Log rotation configured
 
 ## Support
 
-For issues with deployment, check:
-1. Server logs for Node.js errors
-2. Browser console for client-side errors  
-3. Network tab for API call failures
-4. DNS propagation for domain issues 
+For issues specific to:
+- **TNS Integration**: Check TNS status at https://www.wis-tns.org/
+- **Broker APIs**: Verify broker service status (ALeRCE, Antares, Fink, Lasair)
+- **Docker Issues**: Check Docker documentation and logs
+
+## Resource Requirements
+
+### Minimum
+- **CPU**: 1 core
+- **RAM**: 2GB
+- **Storage**: 20GB SSD
+- **Network**: 1Gbps connection
+
+### Recommended
+- **CPU**: 2+ cores  
+- **RAM**: 4GB
+- **Storage**: 50GB SSD
+- **Network**: 1Gbps connection
+- **Backup**: Automated daily backups
+
+This setup provides a robust, scalable platform capable of handling the full TNS database and multiple concurrent users without the limitations of serverless platforms. 

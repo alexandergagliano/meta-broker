@@ -120,20 +120,74 @@ async function downloadTNSData(tnsId = null, tnsUsername = null) {
     try {
         console.log('Attempting to download TNS data in serverless environment...');
         
-        // For serverless environments, return a more helpful error about the limitations
-        // The full TNS database is ~100MB which exceeds Vercel's limits
-        console.log('⚠️ Full TNS database download not supported in serverless environment');
-        console.log('   - TNS CSV file: ~100MB');
-        console.log('   - Vercel timeout: 10 seconds');
-        console.log('   - Vercel memory: Limited');
+        // Create dynamic user agent based on provided credentials
+        let userAgent = 'tns_marker{"type": "user", "name":"metabroker"}'; // Generic fallback
+        if (tnsId && tnsUsername) {
+            userAgent = `tns_marker{"tns_id":${tnsId},"type": "user", "name":"${tnsUsername}"}`;
+        }
         
-        return { 
-            success: false, 
-            error: 'Full TNS database download not supported in serverless environment. TNS CSV file (~100MB) exceeds Vercel\'s 10-second timeout and memory limits. Please use the demo data or consider a persistent deployment.',
-            serverless_limitation: true,
-            suggested_action: 'Use demo data with objects like 1987A, 2011fe, 1993J, etc.'
+        console.log('Using User-Agent:', userAgent);
+        
+        // Download ZIP file directly to memory (buffer)
+        console.log('Making request to TNS with headers:', {
+            'User-Agent': userAgent,
+            'Accept': '*/*'
+        });
+        
+        const response = await axios({
+            method: 'POST',
+            url: 'https://www.wis-tns.org/system/files/tns_public_objects/tns_public_objects.csv.zip',
+            headers: { 
+                'User-Agent': userAgent, 
+                'Accept': '*/*',
+                'Content-Type': 'application/x-www-form-urlencoded'
+            },
+            responseType: 'arraybuffer',
+            timeout: 300000, // 5 minute timeout for Docker environment
+            maxRedirects: 5
+        });
+        
+        console.log('ZIP file downloaded to memory, size:', response.data.byteLength);
+        
+        // Process ZIP in memory
+        const zip = new AdmZip(Buffer.from(response.data));
+        const csvEntry = zip.getEntries().find(entry => entry.entryName.endsWith('.csv'));
+        if (!csvEntry) throw new Error('No CSV file found in the downloaded ZIP.');
+        
+        console.log('Found CSV file in ZIP:', csvEntry.entryName);
+        const csvContent = zip.readAsText(csvEntry);
+        
+        // Parse CSV directly from memory
+        const parsedResults = await parseCSVFromString(csvContent);
+        if (!Array.isArray(parsedResults) || parsedResults.length === 0) throw new Error('No valid results parsed from CSV');
+        
+        // Store both in memory cache and file cache for persistence
+        const cacheData = {
+            last_updated: new Date().toISOString(),
+            download_date: new Date().toISOString().split('T')[0], // YYYY-MM-DD format
+            total_objects: parsedResults.length,
+            data: parsedResults
         };
         
+        // Memory cache for immediate access
+        inMemoryCache = cacheData;
+        cacheTimestamp = Date.now();
+        
+        // File cache for persistence across restarts
+        try {
+            fs.writeFileSync(CACHE_FILE, JSON.stringify(cacheData));
+            console.log('Data cached to file for persistence');
+        } catch (writeError) {
+            console.warn('Could not write cache file (non-critical):', writeError.message);
+        }
+        
+        console.log(`Processed ${parsedResults.length} objects and stored in cache`);
+        return { 
+            success: true, 
+            message: `CSV file parsed and cached with ${parsedResults.length} objects`, 
+            timestamp: cacheData.last_updated,
+            data: parsedResults
+        };
     } catch (error) {
         console.error('Error in downloadTNSData function:', error.message, error.stack);
         return { success: false, error: error.message };
@@ -209,13 +263,11 @@ app.get('/api/tns-data', async (req, res) => {
                 throw new Error('Invalid cache format');
             }
         } else {
-            console.log('⚠️ No TNS cache available in serverless environment');
-            // In serverless environments like Vercel, we can't persist large files
+            console.log('⚠️ No TNS cache available');
             // Return an error that prompts user to enter credentials for fresh download
             res.status(404).json({ 
                 error: 'No TNS data available. Please enter TNS credentials to download the latest data.',
-                serverless: true,
-                message: 'This is a serverless deployment. TNS data cache is not persistent. Please provide TNS credentials to fetch fresh data.'
+                message: 'No cached TNS data found. Please provide TNS credentials to fetch fresh data.'
             });
         }
     } catch (error) {
