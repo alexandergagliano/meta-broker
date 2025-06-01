@@ -77,6 +77,57 @@ document.addEventListener('DOMContentLoaded', () => {
         API_CREDENTIALS.tns_username = localStorage.getItem('tns_username') || '';
     }
     
+    // Fallback data for serverless environment when TNS download fails
+    function getFallbackServerlessData() {
+        return [
+            {
+                name: '2011fe',
+                ra: '14:03:05.810',
+                declination: '+54:16:25.39',
+                type: 'SN Ia',
+                redshift: '0.0008',
+                discoverydate: '2011-08-24',
+                discoverymag: '17.2',
+                filter: 'g',
+                reporting_group: 'Palomar Transient Factory',
+                source_group: 'PTF',
+                internal_names: 'SN 2011fe, PTF11kly',
+                Discovery_ADS_bibcode: '2011CBET.2792....1N',
+                Class_ADS_bibcodes: '2011CBET.2792....1N'
+            },
+            {
+                name: '1987A',
+                ra: '05:35:27.989',
+                declination: '-69:16:11.50',
+                type: 'SN IIP',
+                redshift: '0.0009',
+                discoverydate: '1987-02-24',
+                discoverymag: '4.5',
+                filter: 'V',
+                reporting_group: 'Historical',
+                source_group: 'Historical',
+                internal_names: 'SN 1987A, Sanduleak -69° 202',
+                Discovery_ADS_bibcode: 'IAUC 4316',
+                Class_ADS_bibcodes: 'Multiple IAUCs'
+            },
+            {
+                name: '1993J',
+                ra: '09:55:24.77',
+                declination: '+69:01:13.7',
+                type: 'SN IIb',
+                redshift: '0.0001',
+                discoverydate: '1993-03-28',
+                discoverymag: '10.8',
+                filter: 'V',
+                reporting_group: 'Historical',
+                source_group: 'Historical',
+                internal_names: 'SN 1993J',
+                Discovery_ADS_bibcode: '1993IAUC.5731....1R',
+                Class_ADS_bibcodes: '1993IAUC.5731....1R'
+            }
+        ];
+    }
+    
     // Check if credentials modal should be shown
     function shouldShowCredentialsModal() {
         const hasSeenModal = localStorage.getItem('credentials_modal_seen');
@@ -396,22 +447,32 @@ document.addEventListener('DOMContentLoaded', () => {
                     });
                     
                     if (updateResponse.ok) {
-                        // Get the newly downloaded data
-                        const cacheBuster = Date.now();
-                        const newCacheResponse = await fetch(`${API_BASE_URL}/api/tns-data?_=${cacheBuster}`, {
-                            cache: 'no-store',
-                            headers: {
-                                'Cache-Control': 'no-cache'
+                        const updateResult = await updateResponse.json();
+                        if (updateResult.success) {
+                            // TNS download succeeded, get the newly downloaded data
+                            const cacheBuster = Date.now();
+                            const newCacheResponse = await fetch(`${API_BASE_URL}/api/tns-data?_=${cacheBuster}`, {
+                                cache: 'no-store',
+                                headers: {
+                                    'Cache-Control': 'no-cache'
+                                }
+                            });
+                            if (newCacheResponse.ok) {
+                                tnsCache = await newCacheResponse.json();
+                                usedFreshData = true;
+                                loadingStatus.textContent = 'Loaded latest TNS data successfully!';
+                            } else {
+                                console.error('TNS download succeeded but failed to retrieve data from cache');
+                                loadingStatus.textContent = 'TNS download succeeded but failed to retrieve data...';
                             }
-                        });
-                        if (newCacheResponse.ok) {
-                            tnsCache = await newCacheResponse.json();
-                            usedFreshData = true;
-                            loadingStatus.textContent = 'Loaded latest TNS data successfully!';
+                        } else {
+                            console.error('TNS download failed:', updateResult.error);
+                            loadingStatus.textContent = `TNS download failed: ${updateResult.error}. Will use fallback data for searches.`;
                         }
                     } else {
-                        console.warn('Failed to download fresh TNS data, falling back to cache');
-                        loadingStatus.textContent = 'Using cached TNS data (fresh download failed)...';
+                        const errorResult = await updateResponse.json().catch(() => ({ error: 'Unknown error' }));
+                        console.error('Failed to download fresh TNS data:', errorResult);
+                        loadingStatus.textContent = `TNS download failed: ${errorResult.error || 'Network error'}. Will use fallback data for searches.`;
                     }
                 } catch (error) {
                     console.warn('Error downloading fresh TNS data:', error);
@@ -432,17 +493,27 @@ document.addEventListener('DOMContentLoaded', () => {
                     
                     if (cacheResponse.ok) {
                         tnsCache = await cacheResponse.json();
-                        loadingStatus.textContent = usedFreshData ? 'Loaded latest TNS data!' : 'Loading cached TNS data...';
+                        loadingStatus.textContent = 'Loading cached TNS data...';
                     } else {
                         const errorResponse = await cacheResponse.json();
                         if (errorResponse.serverless) {
-                            throw new Error('🌐 Serverless deployment: No persistent cache available. Please enter TNS credentials to download fresh data.');
+                            // In serverless environment with no cache, provide fallback data
+                            console.warn('No persistent cache available in serverless environment, using fallback data');
+                            tnsCache = getFallbackServerlessData();
+                            loadingStatus.textContent = 'Using fallback transient data (limited dataset for demonstration)';
                         } else {
                             throw new Error('No TNS data available. Please enter TNS credentials to download the latest data.');
                         }
                     }
                 } catch (error) {
-                    throw error;
+                    if (error.message.includes('serverless')) {
+                        // Don't re-throw serverless errors, use fallback data instead
+                        console.warn('Serverless environment detected, using fallback data');
+                        tnsCache = getFallbackServerlessData();
+                        loadingStatus.textContent = 'Using fallback transient data (limited dataset for demonstration)';
+                    } else {
+                        throw error;
+                    }
                 }
             }
             
