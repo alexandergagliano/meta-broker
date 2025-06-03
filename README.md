@@ -1,12 +1,12 @@
 # Transient Meta-Broker
 
-A web application for searching and analyzing astronomical transients across multiple broker services. Provides unified access to TNS, ALeRCE, Antares, Fink, and Lasair data with individual transient URLs and multi-wavelength analysis.
+A web application for searching and analyzing astronomical transients across multiple broker services. Provides unified access to TNS, ALeRCE, Antares, Fink, and Lasair data.
 
 ## Features
 
 - **Direct URL Access**: Individual transient pages via clean URLs like `themetabroker.org/2011fe`
-- **TNS Database Integration**: Access to 100,000+ transients with persistent caching
-- **Multi-broker Support**: Unified data from ALeRCE, Antares, Fink, and Lasair
+- **TNS Database Integration**: Access to 100,000+ transients with daily staging of TNS data
+- **Multi-broker Support**: Unified data access from ALeRCE, Antares, Fink, and Lasair
 - **Classification Analysis**: ML classifications and Sherlock contextual analysis
 - **Host Galaxy Analysis**: Automated cross-matching and catalog associations
 - **Interactive Visualizations**: Aladin sky viewer and Plotly light curves
