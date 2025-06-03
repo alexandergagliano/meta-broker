@@ -1,4 +1,4 @@
-version: '3.3'
+version: '3.7'
 
 services:
   meta-broker:
@@ -10,22 +10,10 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3000
-      - DOMAIN=your-domain.com  # Replace with your actual domain
     volumes:
-      # Persistent cache storage
       - ./data:/app/data
-      # Optional: Bind mount for logs
       - ./logs:/app/logs
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    # Memory limit using older syntax
-    mem_limit: 2g
-    memswap_limit: 2g
 
-  # Optional: Nginx reverse proxy
   nginx:
     image: nginx:alpine
     container_name: meta-broker-nginx
@@ -35,7 +23,7 @@ services:
       - "443:443"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./ssl:/etc/nginx/ssl:ro  # SSL certificates
+      - ./ssl:/etc/nginx/ssl:ro
     depends_on:
       - meta-broker
 
