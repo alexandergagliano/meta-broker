@@ -542,9 +542,25 @@ app.use(express.static(staticPath, {
   }
 }));
 
-// --- Serve index.html for root path (AFTER static and API routes) ---
+// --- Serve index.html for root path and transient routes (AFTER static and API routes) ---
 app.get('/', (req, res) => {
     console.log('Serving index.html for / route');
+    res.sendFile(path.join(__dirname, 'index.html'));
+});
+
+// Catch-all route for transient names - serve index.html and let frontend handle routing
+app.get('/:transientName', (req, res) => {
+    const transientName = req.params.transientName;
+    
+    // Skip API routes and static file requests
+    if (transientName.startsWith('api') || 
+        transientName.includes('.') || 
+        transientName.startsWith('_') ||
+        transientName.startsWith('favicon')) {
+        return res.status(404).json({ error: 'Not found' });
+    }
+    
+    console.log(`Serving index.html for transient route: /${transientName}`);
     res.sendFile(path.join(__dirname, 'index.html'));
 });
 

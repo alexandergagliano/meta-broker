@@ -3,6 +3,58 @@ document.addEventListener('DOMContentLoaded', () => {
     const API_BASE_URL = window.location.origin;
     console.log('Using API base URL:', API_BASE_URL);
     
+    // URL routing functions
+    function getTransientFromURL() {
+        const path = window.location.pathname;
+        if (path === '/') return null;
+        // Remove leading slash and decode URI component
+        return decodeURIComponent(path.substring(1));
+    }
+    
+    function updateURL(transientName) {
+        const newPath = `/${encodeURIComponent(transientName)}`;
+        if (window.location.pathname !== newPath) {
+            window.history.pushState({ transient: transientName }, `The Meta-Broker - ${transientName}`, newPath);
+            updatePageMetadata(transientName);
+        }
+    }
+    
+    function updatePageMetadata(transientName, transientData = null) {
+        document.title = `The Meta-Broker - ${transientName}`;
+        
+        // Update meta description
+        let description = `Information about transient ${transientName} from multiple astronomical brokers`;
+        if (transientData) {
+            if (transientData.type) {
+                description = `${transientData.type} ${transientName}: discovery, classification, and multi-wavelength data`;
+            }
+        }
+        
+        const metaDesc = document.querySelector('meta[name="description"]');
+        if (metaDesc) metaDesc.content = description;
+        
+        const ogTitle = document.querySelector('meta[property="og:title"]');
+        if (ogTitle) ogTitle.content = `The Meta-Broker - ${transientName}`;
+        
+        const ogDesc = document.querySelector('meta[property="og:description"]');
+        if (ogDesc) ogDesc.content = description;
+    }
+    
+    function navigateToHome() {
+        window.history.pushState(null, 'The Meta-Broker', '/');
+        document.title = 'The Meta-Broker';
+        
+        // Reset meta tags to default
+        const metaDesc = document.querySelector('meta[name="description"]');
+        if (metaDesc) metaDesc.content = 'Search for transients across multiple astronomical brokers including TNS, ALeRCE, Fink, Lasair, and Antares';
+        
+        const ogTitle = document.querySelector('meta[property="og:title"]');
+        if (ogTitle) ogTitle.content = 'The Meta-Broker';
+        
+        const ogDesc = document.querySelector('meta[property="og:description"]');
+        if (ogDesc) ogDesc.content = 'Search for transients across multiple astronomical brokers';
+    }
+    
     const searchForm = document.getElementById('search-form');
     const searchStatus = document.getElementById('search-status');
     const resultsContainer = document.getElementById('results-container');
@@ -611,14 +663,12 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    searchForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        
-        // Get the transient name from the input
-        const transientName = document.getElementById('transient-name').value.trim();
-        
+    // Function to search for a transient (can be called from form or URL routing)
+    async function searchTransient(transientName) {
         if (!transientName) {
             showStatus('Please enter a transient name', 'error');
+            // Navigate back to home if no transient name
+            navigateToHome();
             return;
         }
         
@@ -627,6 +677,9 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // Show searching status
         showStatus('Searching for ' + transientName + '...', 'info');
+        
+        // Update URL and browser title
+        updateURL(transientName);
         
         try {
             // Search in the cache
@@ -653,6 +706,9 @@ document.addEventListener('DOMContentLoaded', () => {
             
             // Display object header (coordinates are now part of the header)
             populateObjectHeader(transient);
+            
+            // Update page metadata with transient information
+            updatePageMetadata(transientName, transient);
             
             // Show the results container
             resultsContainer.style.display = 'block';
@@ -794,6 +850,63 @@ document.addEventListener('DOMContentLoaded', () => {
             console.error('Error:', error);
             showStatus('Error searching for transient: ' + error.message, 'error');
         }
+    }
+
+    // Form submission handler
+    searchForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        // Get the transient name from the input
+        const transientName = document.getElementById('transient-name').value.trim();
+        
+            // Search for the transient using the new function
+        await searchTransient(transientName);
+    });
+
+    // Handle browser back/forward navigation
+    window.addEventListener('popstate', (event) => {
+        const transientName = getTransientFromURL();
+        if (transientName) {
+            // Update search input and search for the transient
+            document.getElementById('transient-name').value = transientName;
+            searchTransient(transientName);
+        } else {
+            // Clear results and navigate to home
+            clearResults();
+            document.getElementById('transient-name').value = '';
+            showStatus('');
+        }
+    });
+
+    // Check URL on page load for direct transient links
+    const urlTransient = getTransientFromURL();
+    if (urlTransient) {
+        // Pre-fill the search box and search automatically
+        document.getElementById('transient-name').value = urlTransient;
+        // Wait for init to complete first
+        setTimeout(() => {
+            if (tnsCache) {
+                searchTransient(urlTransient);
+            } else {
+                // If cache isn't ready yet, try again after a short delay
+                const checkCache = setInterval(() => {
+                    if (tnsCache) {
+                        clearInterval(checkCache);
+                        searchTransient(urlTransient);
+                    }
+                }, 500);
+            }
+        }, 100);
+    }
+
+    // Handle home link clicks
+    document.querySelector('header h1 a').addEventListener('click', (e) => {
+        e.preventDefault();
+        // Clear search input and results
+        document.getElementById('transient-name').value = '';
+        clearResults();
+        showStatus('');
+        navigateToHome();
     });
     
     // Function to show status messages
