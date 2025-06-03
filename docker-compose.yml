@@ -1,4 +1,4 @@
-version: '3.8'
+version: '3.3'
 
 services:
   meta-broker:
@@ -21,14 +21,9 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
-    # Resource limits to prevent OOM
-    deploy:
-      resources:
-        limits:
-          memory: 2G
-        reservations:
-          memory: 1G
+    # Memory limit using older syntax
+    mem_limit: 2g
+    memswap_limit: 2g
 
   # Optional: Nginx reverse proxy
   nginx:
@@ -43,8 +38,6 @@ services:
       - ./ssl:/etc/nginx/ssl:ro  # SSL certificates
     depends_on:
       - meta-broker
-    profiles:
-      - nginx  # Only start with --profile nginx
 
 volumes:
   data:
