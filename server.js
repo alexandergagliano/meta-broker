@@ -501,6 +501,8 @@ app.get('/api/alerce/lightcurve', async (req, res) => {
 
 // ATLAS Forced Photometry endpoint 
 app.get('/api/atlas/photometry', async (req, res) => {
+    console.log('=== ATLAS ENDPOINT HIT ===');
+    console.log('Query params:', req.query);
     const { ra, dec, mjd_min, username, password } = req.query;
     
     if (!ra || !dec) {
@@ -618,10 +620,15 @@ app.get('/api/alerce/crossmatch', async (req, res) => {
     }
 });
 
+console.log('🔧 Registering API endpoints...');
+console.log('✓ TNS endpoints registered');
+console.log('✓ ALeRCE endpoints registered'); 
+console.log('✓ ATLAS endpoint registered at /api/atlas/photometry');
+console.log('✓ All broker endpoints registered');
+
 // --- Static File Serving (MOVED AFTER ALL API ENDPOINTS) ---
 app.use(express.static(staticPath, {
   setHeaders: (res, filePath) => {
-    console.log('Attempting to serve static file:', filePath);
     if (path.extname(filePath) === '.js') {
       res.setHeader('Content-Type', 'application/javascript');
     } else if (path.extname(filePath) === '.css') {
@@ -634,6 +641,24 @@ app.use(express.static(staticPath, {
 app.get('/', (req, res) => {
     console.log('Serving index.html for / route');
     res.sendFile(path.join(__dirname, 'index.html'));
+});
+
+// Debug route to catch unmatched API calls
+app.get('/api/*', (req, res) => {
+    console.log(`🚨 UNMATCHED API ROUTE: ${req.path}`);
+    console.log(`Query params: ${JSON.stringify(req.query)}`);
+    console.log(`Available endpoints should include: /api/atlas/photometry`);
+    res.status(404).json({ 
+        error: 'API endpoint not found',
+        path: req.path,
+        availableEndpoints: [
+            '/api/update-tns',
+            '/api/tns-data', 
+            '/api/alerce/lightcurve',
+            '/api/atlas/photometry',
+            '/api/alerce/crossmatch'
+        ]
+    });
 });
 
 // Catch-all route for transient names - serve index.html and let frontend handle routing
@@ -682,10 +707,12 @@ app.listen(port, () => {
         console.log(`\nAPI Endpoints:`);
         console.log(`   Update TNS data: http://localhost:${port}/api/update-tns`);
         console.log(`   View TNS data:   http://localhost:${port}/api/tns-data`);
+        console.log(`   ATLAS photometry: http://localhost:${port}/api/atlas/photometry`);
     } else {
         console.log(`\n🌐 Production Server running at:`);
         console.log(`   Domain: https://${domain}`);
         console.log(`   Port:   ${port}`);
         console.log(`\n✅ Ready to serve themetabroker.org`);
+        console.log(`\n🔭 ATLAS endpoint available at: /api/atlas/photometry`);
     }
 }); 
