@@ -197,10 +197,7 @@ async function downloadTNSData(tnsId = null, tnsUsername = null) {
 // --- API Routes ---
 // Debug middleware to log all API requests
 app.use('/api', (req, res, next) => {
-    console.log(`📡 API Request: ${req.method} ${req.path}`);
-    if (Object.keys(req.query).length > 0) {
-        console.log(`Query params: ${JSON.stringify(req.query)}`);
-    }
+    console.log(`📡 API Request: ${req.method} ${req.originalUrl}`);
     next();
 });
 
@@ -506,6 +503,12 @@ app.get('/api/alerce/lightcurve', async (req, res) => {
         console.error('Error in ALeRCE lightcurve proxy:', error);
         res.status(500).json({ error: 'Failed to query ALeRCE lightcurve', details: error.message });
     }
+});
+
+// Test endpoint to verify API routing works
+app.get('/api/atlas/test', (req, res) => {
+    console.log('🧪 ATLAS TEST ENDPOINT HIT');
+    res.json({ success: true, message: 'ATLAS test endpoint working', timestamp: new Date().toISOString() });
 });
 
 // ATLAS Forced Photometry endpoint 
