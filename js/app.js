@@ -112,12 +112,14 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // API Credentials storage - SECURITY NOTE:
     // Credentials are ONLY stored in browser localStorage and ONLY transmitted
-    // to official broker APIs (TNS, Lasair) via our local server proxy.
+    // to official broker APIs (TNS, Lasair, ATLAS) via our local server proxy.
     // They are NEVER logged, cached, or stored on our servers.
     let API_CREDENTIALS = {
         lasair: localStorage.getItem('lasair_api_token') || '',
         tns_id: localStorage.getItem('tns_id') || '',
-        tns_username: localStorage.getItem('tns_username') || ''
+        tns_username: localStorage.getItem('tns_username') || '',
+        atlas_username: localStorage.getItem('atlas_username') || '',
+        atlas_password: localStorage.getItem('atlas_password') || ''
     };
     
 
@@ -127,6 +129,8 @@ document.addEventListener('DOMContentLoaded', () => {
         API_CREDENTIALS.lasair = localStorage.getItem('lasair_api_token') || '';
         API_CREDENTIALS.tns_id = localStorage.getItem('tns_id') || '';
         API_CREDENTIALS.tns_username = localStorage.getItem('tns_username') || '';
+        API_CREDENTIALS.atlas_username = localStorage.getItem('atlas_username') || '';
+        API_CREDENTIALS.atlas_password = localStorage.getItem('atlas_password') || '';
     }
     
     // Fallback data for serverless environment when TNS download fails
@@ -196,6 +200,8 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('lasair-token').value = API_CREDENTIALS.lasair;
         document.getElementById('tns-id').value = API_CREDENTIALS.tns_id;
         document.getElementById('tns-username').value = API_CREDENTIALS.tns_username;
+        document.getElementById('atlas-username').value = API_CREDENTIALS.atlas_username;
+        document.getElementById('atlas-password').value = API_CREDENTIALS.atlas_password;
     } else {
         credentialsModal.style.display = 'none';
     }
@@ -216,6 +222,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const lasairToken = document.getElementById('lasair-token').value.trim();
         const tnsId = document.getElementById('tns-id').value.trim();
         const tnsUsername = document.getElementById('tns-username').value.trim();
+        const atlasUsername = document.getElementById('atlas-username').value.trim();
+        const atlasPassword = document.getElementById('atlas-password').value.trim();
         
         if (lasairToken && (lasairToken.includes('🆔') || lasairToken.includes('Object Information') || lasairToken.includes('<') || lasairToken.includes('undefined'))) {
             alert('Invalid API token detected. Please enter a valid Lasair API token.');
@@ -236,6 +244,16 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
         
+        // Validate ATLAS credentials
+        if (atlasUsername && !atlasPassword) {
+            alert('Please enter both ATLAS username and password, or leave both empty.');
+            return;
+        }
+        if (atlasPassword && !atlasUsername) {
+            alert('Please enter both ATLAS username and password, or leave both empty.');
+            return;
+        }
+        
         if (lasairToken) {
             localStorage.setItem('lasair_api_token', lasairToken);
         }
@@ -243,6 +261,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (tnsId && tnsUsername) {
             localStorage.setItem('tns_id', tnsId);
             localStorage.setItem('tns_username', tnsUsername);
+        }
+        
+        if (atlasUsername && atlasPassword) {
+            localStorage.setItem('atlas_username', atlasUsername);
+            localStorage.setItem('atlas_password', atlasPassword);
         }
         
         refreshCredentials();
@@ -2101,7 +2124,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
     
-    // Function to plot ALeRCE light curve
+    // Function to plot ALeRCE light curve with ATLAS data
     async function plotAlerceLightcurve(ztfId) {
         try {
             if (!ztfId) {
@@ -2132,10 +2155,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 await Plotly.purge(plotContainer);
             }
             
+            // Fetch ZTF data from ALeRCE
             const response = await fetch(`${API_BASE_URL}/api/alerce/lightcurve?ztf_id=${encodeURIComponent(ztfId)}`);
             
             if (!response.ok) {
-                throw new Error('Failed to fetch light curve data');
+                throw new Error('Failed to fetch ZTF light curve data');
             }
             
             const lightcurveData = await response.json();
@@ -2162,22 +2186,68 @@ document.addEventListener('DOMContentLoaded', () => {
             
             
             if (!Array.isArray(photometryData) || photometryData.length === 0) {
-                plotContainer.innerHTML = '<div class="alert alert-info">No photometry data available for this object.</div>';
+                plotContainer.innerHTML = '<div class="alert alert-info">No ZTF photometry data available for this object.</div>';
                 return;
+            }
+            
+            // Process ZTF data for Plotly
+            const gFilter = photometryData.filter(d => d.fid === 1);
+            const rFilter = photometryData.filter(d => d.fid === 2);
+            
+            // Try to fetch ATLAS data if credentials are available
+            let atlasData = [];
+            if (API_CREDENTIALS.atlas_username && API_CREDENTIALS.atlas_password) {
+                try {
+                    // Get coordinates from the current transient
+                    const transientNameInput = document.getElementById('transient-name');
+                    if (transientNameInput && transientNameInput.value && tnsCache) {
+                        const searchName = transientNameInput.value.trim().toLowerCase().replace(/^sn\s+/, '');
+                        let transient = tnsCache.find(obj => {
+                            const objName = obj.name.toLowerCase().replace(/^sn\s+/, '');
+                            return objName === searchName || 
+                                   (obj.internal_names && obj.internal_names.toLowerCase().includes(searchName));
+                        });
+                        
+                        if (!transient) {
+                            transient = getFallbackTransientData(searchName);
+                        }
+                        
+                        if (transient && transient.ra && transient.declination) {
+                            const { raDecimal, decDecimal } = convertToDecimal(transient.ra, transient.declination);
+                            
+                            console.log('Fetching ATLAS data for:', transient.name, 'at', raDecimal, decDecimal);
+                            plotContainer.innerHTML = '<div class="loading-message">Loading ZTF and ATLAS photometry...</div>';
+                            
+                            const atlasResponse = await fetch(`${API_BASE_URL}/api/atlas/photometry?ra=${raDecimal}&dec=${decDecimal}&username=${encodeURIComponent(API_CREDENTIALS.atlas_username)}&password=${encodeURIComponent(API_CREDENTIALS.atlas_password)}`);
+                            
+                            if (atlasResponse.ok) {
+                                const atlasResult = await atlasResponse.json();
+                                if (atlasResult.success && atlasResult.data) {
+                                    atlasData = atlasResult.data;
+                                    console.log(`Found ${atlasData.length} ATLAS detections`);
+                                } else {
+                                    console.warn('ATLAS query succeeded but no data:', atlasResult.message || atlasResult.error);
+                                }
+                            } else {
+                                console.warn('Failed to fetch ATLAS data - will show ZTF only');
+                            }
+                        }
+                    }
+                } catch (atlasError) {
+                    console.warn('Error fetching ATLAS data:', atlasError);
+                    // Continue with ZTF-only plot
+                }
             }
             
             // Clear the loading message and prepare for plot
             plotContainer.innerHTML = '';
-            
-            // Process the data for Plotly
-            const gFilter = photometryData.filter(d => d.fid === 1);
-            const rFilter = photometryData.filter(d => d.fid === 2);
             
             
 
             
             const traces = [];
             
+            // Add ZTF data traces
             if (gFilter.length > 0) {
                 traces.push({
                     x: gFilter.map(d => d.mjd),
@@ -2188,7 +2258,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         visible: true
                     },
                     mode: 'markers',
-                    name: 'g-band',
+                    name: 'ZTF g-band',
                     marker: { color: 'green', size: 10 }
                 });
             }
@@ -2203,16 +2273,52 @@ document.addEventListener('DOMContentLoaded', () => {
                         visible: true
                     },
                     mode: 'markers',
-                    name: 'r-band',
+                    name: 'ZTF r-band',
                     marker: { color: 'red', size: 10 }
                 });
+            }
+            
+            // Add ATLAS data traces
+            if (atlasData.length > 0) {
+                const atlasOFilter = atlasData.filter(d => d.filter === 'o');
+                const atlasCFilter = atlasData.filter(d => d.filter === 'c');
+                
+                if (atlasOFilter.length > 0) {
+                    traces.push({
+                        x: atlasOFilter.map(d => d.mjd),
+                        y: atlasOFilter.map(d => d.mag),
+                        error_y: {
+                            type: 'data',
+                            array: atlasOFilter.map(d => d.e_mag),
+                            visible: true
+                        },
+                        mode: 'markers',
+                        name: 'ATLAS o-band',
+                        marker: { color: 'orange', size: 8, symbol: 'square' }
+                    });
+                }
+                
+                if (atlasCFilter.length > 0) {
+                    traces.push({
+                        x: atlasCFilter.map(d => d.mjd),
+                        y: atlasCFilter.map(d => d.mag),
+                        error_y: {
+                            type: 'data',
+                            array: atlasCFilter.map(d => d.e_mag),
+                            visible: true
+                        },
+                        mode: 'markers',
+                        name: 'ATLAS c-band',
+                        marker: { color: 'cyan', size: 8, symbol: 'square' }
+                    });
+                }
             }
             
             const plotData = traces;
             
             const layout = {
                 title: {
-                    text: `Light Curve for ${ztfId}`,
+                    text: `Light Curve for ${ztfId}${atlasData.length > 0 ? ' (ZTF + ATLAS)' : ' (ZTF only)'}`,
                     font: { size: 18 }
                 },
                 xaxis: {
@@ -2575,100 +2681,163 @@ document.addEventListener('DOMContentLoaded', () => {
         return html;
     }
     
-    // Function to download photometry data as CSV
+    // Function to download photometry data as CSV (ZTF + ATLAS)
     async function downloadPhotometry() {
         try {
-                    // Get the current transient name and find ZTF ID
-        const transientNameInput = document.getElementById('transient-name');
-        if (!transientNameInput || !transientNameInput.value) {
-            alert('Please search for a transient first');
-            return;
-        }
-        
-        const searchName = transientNameInput.value.trim().toLowerCase().replace(/^sn\s+/, '');
-        let transient = tnsCache.find(obj => {
-            const objName = obj.name.toLowerCase().replace(/^sn\s+/, '');
-            return objName === searchName || 
-                   (obj.internal_names && obj.internal_names.toLowerCase().includes(searchName));
-        });
-        
-        if (!transient) {
-            transient = getFallbackTransientData(searchName);
-        }
-        
-        if (!transient || !transient.internal_names) {
-            alert('No ZTF ID found for this object. Photometry download requires a ZTF ID.');
-            return;
-        }
-        
-        // Find ZTF ID
-        const internalNames = transient.internal_names.split(/[,;]\s*/);
-        const ztfPattern = /^ZTF[0-9]{2}[a-z]{7}$/i;
-        const ztfId = internalNames.find(name => ztfPattern.test(name.trim()));
-            
-            if (!ztfId) {
-                alert('No ZTF ID found for this object. Photometry download requires a ZTF ID.');
+            // Get the current transient information
+            const transientNameInput = document.getElementById('transient-name');
+            if (!transientNameInput || !transientNameInput.value) {
+                alert('Please search for a transient first');
                 return;
             }
             
-            // Fetch photometry data
-            const response = await fetch(`${API_BASE_URL}/api/alerce/lightcurve?ztf_id=${encodeURIComponent(ztfId.trim())}`);
+            const searchName = transientNameInput.value.trim().toLowerCase().replace(/^sn\s+/, '');
+            let transient = tnsCache.find(obj => {
+                const objName = obj.name.toLowerCase().replace(/^sn\s+/, '');
+                return objName === searchName || 
+                       (obj.internal_names && obj.internal_names.toLowerCase().includes(searchName));
+            });
             
-            if (!response.ok) {
-                throw new Error('Failed to fetch photometry data');
+            if (!transient) {
+                transient = getFallbackTransientData(searchName);
             }
             
-            const lightcurveData = await response.json();
-            
-            // Handle different response formats
-            let photometryData = lightcurveData;
-            if (lightcurveData && typeof lightcurveData === 'object' && lightcurveData.data) {
-                photometryData = lightcurveData.data;
+            if (!transient) {
+                alert('Transient not found. Please search for a valid transient first.');
+                return;
             }
             
-            if (!Array.isArray(photometryData)) {
-                const possibleKeys = ['detections', 'lightcurve', 'photometry', 'data', 'alerts'];
-                for (const key of possibleKeys) {
-                    if (photometryData[key] && Array.isArray(photometryData[key])) {
-                        photometryData = photometryData[key];
-                        break;
+            let allPhotometryData = [];
+            let hasZtfData = false;
+            let hasAtlasData = false;
+            
+            // Try to get ZTF data
+            if (transient.internal_names) {
+                const internalNames = transient.internal_names.split(/[,;]\s*/);
+                const ztfPattern = /^ZTF[0-9]{2}[a-z]{7}$/i;
+                const ztfId = internalNames.find(name => ztfPattern.test(name.trim()));
+                
+                if (ztfId) {
+                    try {
+                        const response = await fetch(`${API_BASE_URL}/api/alerce/lightcurve?ztf_id=${encodeURIComponent(ztfId.trim())}`);
+                        
+                        if (response.ok) {
+                            const lightcurveData = await response.json();
+                            
+                            // Handle different response formats
+                            let photometryData = lightcurveData;
+                            if (lightcurveData && typeof lightcurveData === 'object' && lightcurveData.data) {
+                                photometryData = lightcurveData.data;
+                            }
+                            
+                            if (!Array.isArray(photometryData)) {
+                                const possibleKeys = ['detections', 'lightcurve', 'photometry', 'data', 'alerts'];
+                                for (const key of possibleKeys) {
+                                    if (photometryData[key] && Array.isArray(photometryData[key])) {
+                                        photometryData = photometryData[key];
+                                        break;
+                                    }
+                                }
+                            }
+                            
+                            if (Array.isArray(photometryData) && photometryData.length > 0) {
+                                // Convert ZTF data to standardized format
+                                photometryData.forEach(point => {
+                                    const filter = point.fid === 1 ? 'g' : point.fid === 2 ? 'r' : 'i';
+                                    allPhotometryData.push({
+                                        mjd: point.mjd || '',
+                                        mag: point.mag || '',
+                                        e_mag: point.e_mag || '',
+                                        filter: filter,
+                                        survey: 'ZTF',
+                                        fid: point.fid || ''
+                                    });
+                                });
+                                hasZtfData = true;
+                            }
+                        }
+                    } catch (ztfError) {
+                        console.warn('Failed to fetch ZTF data:', ztfError);
                     }
                 }
             }
             
-            if (!Array.isArray(photometryData) || photometryData.length === 0) {
-                alert('No photometry data available for download');
+            // Try to get ATLAS data if credentials are available
+            if (API_CREDENTIALS.atlas_username && API_CREDENTIALS.atlas_password && transient.ra && transient.declination) {
+                try {
+                    const { raDecimal, decDecimal } = convertToDecimal(transient.ra, transient.declination);
+                    
+                    const atlasResponse = await fetch(`${API_BASE_URL}/api/atlas/photometry?ra=${raDecimal}&dec=${decDecimal}&username=${encodeURIComponent(API_CREDENTIALS.atlas_username)}&password=${encodeURIComponent(API_CREDENTIALS.atlas_password)}`);
+                    
+                    if (atlasResponse.ok) {
+                        const atlasResult = await atlasResponse.json();
+                        if (atlasResult.success && atlasResult.data && atlasResult.data.length > 0) {
+                            // Convert ATLAS data to standardized format
+                            atlasResult.data.forEach(point => {
+                                allPhotometryData.push({
+                                    mjd: point.mjd || '',
+                                    mag: point.mag || '',
+                                    e_mag: point.e_mag || '',
+                                    filter: point.filter || '',  // 'o' or 'c'
+                                    survey: 'ATLAS',
+                                    flux_ujy: point.flux_ujy || '',
+                                    flux_err_ujy: point.flux_err_ujy || ''
+                                });
+                            });
+                            hasAtlasData = true;
+                        }
+                    }
+                } catch (atlasError) {
+                    console.warn('Failed to fetch ATLAS data:', atlasError);
+                }
+            }
+            
+            if (allPhotometryData.length === 0) {
+                alert('No photometry data available for download. Make sure the object has a ZTF ID or provide ATLAS credentials.');
                 return;
             }
             
-            // Convert to CSV format
-            const csvHeaders = ['mjd', 'mag', 'e_mag', 'fid', 'filter'];
+            // Sort by MJD
+            allPhotometryData.sort((a, b) => parseFloat(a.mjd) - parseFloat(b.mjd));
+            
+            // Create CSV content
+            const csvHeaders = ['mjd', 'mag', 'e_mag', 'filter', 'survey', 'fid', 'flux_ujy', 'flux_err_ujy'];
             const csvRows = [csvHeaders.join(',')];
             
-            photometryData.forEach(point => {
-                const filter = point.fid === 1 ? 'g' : point.fid === 2 ? 'r' : 'i';
+            allPhotometryData.forEach(point => {
                 const row = [
-                    point.mjd || '',
-                    point.mag || '',
-                    point.e_mag || '',
+                    point.mjd,
+                    point.mag,
+                    point.e_mag,
+                    point.filter,
+                    point.survey,
                     point.fid || '',
-                    filter
+                    point.flux_ujy || '',
+                    point.flux_err_ujy || ''
                 ];
                 csvRows.push(row.join(','));
             });
             
             const csvContent = csvRows.join('\n');
             
+            // Create filename
+            const surveys = [];
+            if (hasZtfData) surveys.push('ZTF');
+            if (hasAtlasData) surveys.push('ATLAS');
+            const filename = `${transient.name.replace(/\s+/g, '_')}_${surveys.join('_')}_photometry.csv`;
+            
             // Create and trigger download
             const blob = new Blob([csvContent], { type: 'text/csv' });
             const url = window.URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.href = url;
-            link.download = `${ztfId.trim()}_photometry.csv`;
+            link.download = filename;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
             window.URL.revokeObjectURL(url);
+            
+            console.log(`Downloaded ${allPhotometryData.length} photometry points from ${surveys.join(' + ')}`);
             
         } catch (error) {
             console.error('Error downloading photometry:', error);

@@ -499,6 +499,94 @@ app.get('/api/alerce/lightcurve', async (req, res) => {
     }
 });
 
+// ATLAS Forced Photometry endpoint 
+app.get('/api/atlas/photometry', async (req, res) => {
+    const { ra, dec, mjd_min, username, password } = req.query;
+    
+    if (!ra || !dec) {
+        return res.status(400).json({ error: 'ra and dec are required' });
+    }
+    
+    if (!username || !password) {
+        return res.status(400).json({ 
+            error: 'ATLAS credentials required',
+            message: 'Please provide ATLAS username and password to access forced photometry data'
+        });
+    }
+    
+    try {
+        const { spawn } = require('child_process');
+        const args = { 
+            username, 
+            password, 
+            ra: parseFloat(ra), 
+            dec: parseFloat(dec),
+            mjd_min: mjd_min ? parseFloat(mjd_min) : null
+        };
+        
+        console.log(`Fetching ATLAS photometry for RA=${ra}, Dec=${dec}`);
+        
+        const python = spawn('./venv/bin/python3', ['atlas_api.py', JSON.stringify(args)]);
+        let dataString = '';
+        let errorString = '';
+        
+        python.stdout.on('data', (data) => {
+            dataString += data.toString();
+        });
+        
+        python.stderr.on('data', (data) => {
+            errorString += data.toString();
+            console.error('ATLAS Python stderr:', data.toString());
+        });
+        
+        python.on('close', (code) => {
+            console.log(`ATLAS Python process exited with code ${code}`);
+            if (errorString) {
+                console.error('ATLAS Python full errors:', errorString);
+            }
+            
+            try {
+                const result = JSON.parse(dataString);
+                if (result.success) {
+                    console.log(`ATLAS: Found ${result.data ? result.data.length : 0} detections`);
+                    res.json(result);
+                } else {
+                    console.error('ATLAS error:', result.error);
+                    res.status(result.status_code || 404).json({ 
+                        message: 'ATLAS: ' + (result.error || 'No data found.'),
+                        error: result.error
+                    });
+                }
+            } catch (parseError) {
+                console.error('Error parsing ATLAS Python output:', parseError, 'Raw Output:', dataString);
+                res.status(500).json({ 
+                    error: 'Failed to parse ATLAS response', 
+                    details: parseError.message, 
+                    raw: dataString.substring(0, 1000) // Limit raw output size
+                });
+            }
+        });
+        
+        // Set a timeout for the request
+        setTimeout(() => {
+            python.kill();
+            if (!res.headersSent) {
+                res.status(408).json({ 
+                    error: 'ATLAS request timed out',
+                    message: 'ATLAS forced photometry request took too long. This can happen during high server load.'
+                });
+            }
+        }, 600000); // 10 minute timeout for ATLAS requests
+        
+    } catch (error) {
+        console.error('Error in ATLAS photometry proxy:', error);
+        res.status(500).json({ 
+            error: 'Failed to query ATLAS photometry', 
+            details: error.message 
+        });
+    }
+});
+
 app.get('/api/alerce/crossmatch', async (req, res) => {
     const { ra, dec, radius } = req.query;
     if (!ra || !dec) return res.status(400).json({ error: 'ra and dec coordinates are required' });
