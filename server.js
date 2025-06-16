@@ -195,6 +195,15 @@ async function downloadTNSData(tnsId = null, tnsUsername = null) {
 }
 
 // --- API Routes ---
+// Debug middleware to log all API requests
+app.use('/api', (req, res, next) => {
+    console.log(`📡 API Request: ${req.method} ${req.path}`);
+    if (Object.keys(req.query).length > 0) {
+        console.log(`Query params: ${JSON.stringify(req.query)}`);
+    }
+    next();
+});
+
 // Legacy GET endpoint (without credentials) for backwards compatibility
 app.get('/api/update-tns', async (req, res) => {
     console.log('Received GET request for /api/update-tns (legacy)');
@@ -641,24 +650,6 @@ app.use(express.static(staticPath, {
 app.get('/', (req, res) => {
     console.log('Serving index.html for / route');
     res.sendFile(path.join(__dirname, 'index.html'));
-});
-
-// Debug route to catch unmatched API calls
-app.get('/api/*', (req, res) => {
-    console.log(`🚨 UNMATCHED API ROUTE: ${req.path}`);
-    console.log(`Query params: ${JSON.stringify(req.query)}`);
-    console.log(`Available endpoints should include: /api/atlas/photometry`);
-    res.status(404).json({ 
-        error: 'API endpoint not found',
-        path: req.path,
-        availableEndpoints: [
-            '/api/update-tns',
-            '/api/tns-data', 
-            '/api/alerce/lightcurve',
-            '/api/atlas/photometry',
-            '/api/alerce/crossmatch'
-        ]
-    });
 });
 
 // Catch-all route for transient names - serve index.html and let frontend handle routing
