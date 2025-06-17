@@ -144,17 +144,21 @@ def queue_atlas_job(token, ra, dec, mjd_min):
     
     return {"success": False, "error": "Max retries exceeded for queueing job"}
 
-def wait_for_results(token, task_url, max_wait_time=300):
+def wait_for_results(token, task_url, max_wait_time=600):
     """Wait for ATLAS job to complete and return results URL"""
     headers = {"Authorization": f"Token {token}", "Accept": "application/json"}
     
     result_url = None
     taskstarted_printed = False
     start_time = time.time()
+    poll_count = 0
     
     while not result_url:
-        if time.time() - start_time > max_wait_time:
-            return {"success": False, "error": f"Job timed out after {max_wait_time} seconds"}
+        poll_count += 1
+        elapsed_time = time.time() - start_time
+        
+        if elapsed_time > max_wait_time:
+            return {"success": False, "error": f"Job timed out after {max_wait_time} seconds ({poll_count} polls)"}
         
         try:
             with requests.Session() as s:
@@ -162,6 +166,10 @@ def wait_for_results(token, task_url, max_wait_time=300):
                 
                 if resp.status_code == 200:
                     job_data = resp.json()
+                    
+                    # Debug: Print job status on every poll after job starts
+                    if job_data.get("starttimestamp") and poll_count % 5 == 0:  # Every 5th poll after start
+                        print(f"Poll #{poll_count}: Job status check at {elapsed_time:.1f}s - finished: {job_data.get('finished', False)}", file=sys.stderr)
                     
                     if job_data.get("finishtimestamp"):
                         # Debug: Print the full job_data structure to see what fields are available
@@ -196,11 +204,11 @@ def wait_for_results(token, task_url, max_wait_time=300):
                         if not taskstarted_printed:
                             print(f"Job started at {job_data['starttimestamp']}", file=sys.stderr)
                             taskstarted_printed = True
-                        time.sleep(2)
+                        time.sleep(3)  # Increased from 2 to 3 seconds between polls
                         
                     else:
                         print(f"Job queued at {job_data.get('timestamp', 'unknown time')}", file=sys.stderr)
-                        time.sleep(4)
+                        time.sleep(5)  # Increased from 4 to 5 seconds for queued jobs
                         
                 else:
                     error_msg = f"Status check failed: HTTP {resp.status_code}"
@@ -209,25 +217,36 @@ def wait_for_results(token, task_url, max_wait_time=300):
                     return {"success": False, "error": error_msg}
                     
         except requests.exceptions.Timeout:
-            return {"success": False, "error": "Status check timed out"}
+            print(f"Poll #{poll_count}: Timeout during status check at {elapsed_time:.1f}s", file=sys.stderr)
+            time.sleep(5)  # Wait before retrying after timeout
+            continue
         except Exception as e:
-            return {"success": False, "error": f"Status check error: {str(e)}"}
+            print(f"Poll #{poll_count}: Error during status check at {elapsed_time:.1f}s: {str(e)}", file=sys.stderr)
+            time.sleep(5)  # Wait before retrying after error
+            continue
 
 def download_atlas_results(token, result_url):
     """Download and parse ATLAS photometry results"""
     headers = {"Authorization": f"Token {token}", "Accept": "application/json"}
     
+    print(f"Attempting to download ATLAS results from: {result_url}", file=sys.stderr)
+    
     try:
         with requests.Session() as s:
             resp = s.get(result_url, headers=headers, timeout=60)
             
+            print(f"Download response status: {resp.status_code}", file=sys.stderr)
+            
             if resp.status_code == 200:
                 textdata = resp.text
+                print(f"Downloaded {len(textdata)} characters of data", file=sys.stderr)
                 
                 # Parse the CSV data
                 try:
                     df = pd.read_csv(StringIO(textdata), sep=r"\s+")
                     df = df.rename({"###MJD": "MJD"}, axis="columns")
+                    
+                    print(f"Parsed CSV with {len(df)} rows and columns: {list(df.columns)}", file=sys.stderr)
                     
                     # Convert to list of dictionaries for JSON serialization
                     photometry_data = []
@@ -245,20 +264,25 @@ def download_atlas_results(token, result_url):
                                 'dec': float(row.get('Dec', 0)) if pd.notna(row.get('Dec')) else 0
                             })
                     
+                    print(f"Found {len(photometry_data)} valid detections", file=sys.stderr)
                     return {"success": True, "data": photometry_data, "raw_csv": textdata}
                     
                 except Exception as parse_error:
+                    print(f"Error parsing CSV data: {str(parse_error)}", file=sys.stderr)
+                    print(f"First 500 chars of data: {textdata[:500]}", file=sys.stderr)
                     return {"success": False, "error": f"Error parsing CSV data: {str(parse_error)}"}
                     
             else:
                 error_msg = f"Download failed: HTTP {resp.status_code}"
                 if resp.text:
                     error_msg += f" - {resp.text}"
+                    print(f"Download error response: {resp.text[:500]}", file=sys.stderr)
                 return {"success": False, "error": error_msg}
                 
     except requests.exceptions.Timeout:
         return {"success": False, "error": "Download timed out"}
     except Exception as e:
+        print(f"Download exception: {str(e)}", file=sys.stderr)
         return {"success": False, "error": f"Download error: {str(e)}"}
 
 def get_atlas_photometry(username, password, ra, dec, mjd_min=None):
