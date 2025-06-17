@@ -244,7 +244,7 @@ def download_atlas_results(token, result_url):
                 
                 # Parse the CSV data
                 try:
-                    df = pd.read_csv(StringIO(textdata), delim_whitespace=True)
+                    df = pd.read_csv(StringIO(textdata), sep='\s+')
                     print(f"Parsed CSV with {len(df)} rows and columns: {list(df.columns)}", file=sys.stderr)
                     
                     # Check for different possible MJD column names
@@ -276,13 +276,18 @@ def download_atlas_results(token, result_url):
                     # Convert to standardized format
                     photometry_data = []
                     for _, row in df.iterrows():
-                        # Convert flux to magnitude if needed
-                        if 'uJy' in df.columns and pd.notna(row['uJy']) and row['uJy'] > 0:
+                        # Use apparent magnitudes directly from 'm' column if available
+                        # (ATLAS provides both flux and already-converted apparent magnitudes)
+                        if 'm' in df.columns and pd.notna(row['m']):
+                            mag = row['m']  # Use apparent magnitude directly
+                            mag_err = row.get('dm', 0.1) if 'dm' in df.columns and pd.notna(row.get('dm')) else 0.1
+                        elif 'uJy' in df.columns and pd.notna(row['uJy']) and row['uJy'] > 0:
+                            # Fallback: convert flux to magnitude if no apparent magnitude available
                             mag = -2.5 * np.log10(row['uJy'] / 1e6) + 23.9  # Convert µJy to AB mag
                             mag_err = 2.5 * np.log10(np.e) * row['duJy'] / row['uJy'] if 'duJy' in df.columns and pd.notna(row['duJy']) else 0.1
                         else:
-                            mag = row.get('m', np.nan)
-                            mag_err = row.get('dm', 0.1)
+                            mag = np.nan
+                            mag_err = 0.1
                         
                         if pd.notna(mag):
                             mjd_value = row[mjd_column] if pd.notna(row[mjd_column]) else 0
