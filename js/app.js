@@ -2853,11 +2853,15 @@ document.addEventListener('DOMContentLoaded', () => {
             
             const csvContent = csvRows.join('\n');
             
-            // Create filename
+            // Create filename with current MJD
+            const currentDate = new Date();
+            const mjd0 = new Date(1858, 10, 17); // November 17, 1858 (month is 0-indexed)
+            const currentMJD = Math.floor((currentDate - mjd0) / (1000 * 60 * 60 * 24));
+            
             const surveys = [];
             if (hasZtfData) surveys.push('ZTF');
             if (hasAtlasData) surveys.push('ATLAS');
-            const filename = `${transient.name.replace(/\s+/g, '_')}_${surveys.join('_')}_photometry.csv`;
+            const filename = `${transient.name.replace(/\s+/g, '_')}_${surveys.join('_')}_photometry_MJD${currentMJD}.csv`;
             
             // Create and trigger download
             const blob = new Blob([csvContent], { type: 'text/csv' });
