@@ -302,7 +302,9 @@ def get_atlas_photometry(username, password, ra, dec, mjd_min=None):
     # Set default mjd_min to 3 years ago if not specified
     if mjd_min is None:
         three_years_ago = datetime.now() - timedelta(days=3*365)
-        mjd_min = (three_years_ago - datetime(1858, 11, 17)).days + 40587
+        # Fix MJD calculation: MJD 0 = November 17, 1858
+        mjd_min = (three_years_ago - datetime(1858, 11, 17)).days
+        print(f"Calculated MJD_min: {mjd_min} for date: {three_years_ago.strftime('%Y-%m-%d')}", file=sys.stderr)
     
     # Check cache first
     cache_key = get_cache_key(ra, dec, mjd_min)
