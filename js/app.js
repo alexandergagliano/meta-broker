@@ -2216,9 +2216,18 @@ document.addEventListener('DOMContentLoaded', () => {
                             const { raDecimal, decDecimal } = convertToDecimal(transient.ra, transient.declination);
                             
                             console.log('Fetching ATLAS data for:', transient.name, 'at', raDecimal, decDecimal);
+                            if (transient.discoverydate) {
+                                console.log('Using discovery date:', transient.discoverydate);
+                            }
                             plotContainer.innerHTML = '<div class="loading-message">Loading ZTF and ATLAS photometry...</div>';
                             
-                            const atlasResponse = await fetch(`${API_BASE_URL}/api/atlas/photometry?ra=${raDecimal}&dec=${decDecimal}&username=${encodeURIComponent(API_CREDENTIALS.atlas_username)}&password=${encodeURIComponent(API_CREDENTIALS.atlas_password)}`);
+                            // Build ATLAS URL with discovery date if available
+                            let atlasUrl = `${API_BASE_URL}/api/atlas/photometry?ra=${raDecimal}&dec=${decDecimal}&username=${encodeURIComponent(API_CREDENTIALS.atlas_username)}&password=${encodeURIComponent(API_CREDENTIALS.atlas_password)}`;
+                            if (transient.discoverydate && transient.discoverydate !== 'null') {
+                                atlasUrl += `&discovery_date=${encodeURIComponent(transient.discoverydate)}`;
+                            }
+                            
+                            const atlasResponse = await fetch(atlasUrl);
                             
                             if (atlasResponse.ok) {
                                 const atlasResult = await atlasResponse.json();
@@ -2767,7 +2776,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 try {
                     const { raDecimal, decDecimal } = convertToDecimal(transient.ra, transient.declination);
                     
-                    const atlasResponse = await fetch(`${API_BASE_URL}/api/atlas/photometry?ra=${raDecimal}&dec=${decDecimal}&username=${encodeURIComponent(API_CREDENTIALS.atlas_username)}&password=${encodeURIComponent(API_CREDENTIALS.atlas_password)}`);
+                    // Build ATLAS URL with discovery date if available
+                    let atlasUrl = `${API_BASE_URL}/api/atlas/photometry?ra=${raDecimal}&dec=${decDecimal}&username=${encodeURIComponent(API_CREDENTIALS.atlas_username)}&password=${encodeURIComponent(API_CREDENTIALS.atlas_password)}`;
+                    if (transient.discoverydate && transient.discoverydate !== 'null') {
+                        atlasUrl += `&discovery_date=${encodeURIComponent(transient.discoverydate)}`;
+                    }
+                    
+                    const atlasResponse = await fetch(atlasUrl);
                     
                     if (atlasResponse.ok) {
                         const atlasResult = await atlasResponse.json();

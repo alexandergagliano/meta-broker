@@ -515,7 +515,7 @@ app.get('/api/atlas/test', (req, res) => {
 app.get('/api/atlas/photometry', async (req, res) => {
     console.log('=== ATLAS ENDPOINT HIT ===');
     console.log('Query params:', req.query);
-    const { ra, dec, mjd_min, username, password } = req.query;
+    const { ra, dec, discovery_date, username, password } = req.query;
     
     if (!ra || !dec) {
         return res.status(400).json({ error: 'ra and dec are required' });
@@ -535,10 +535,10 @@ app.get('/api/atlas/photometry', async (req, res) => {
             password, 
             ra: parseFloat(ra), 
             dec: parseFloat(dec),
-            mjd_min: mjd_min ? parseFloat(mjd_min) : null
+            discovery_date: discovery_date || null
         };
         
-        console.log(`Fetching ATLAS photometry for RA=${ra}, Dec=${dec}`);
+        console.log(`Fetching ATLAS photometry for RA=${ra}, Dec=${dec}${discovery_date ? `, Discovery=${discovery_date}` : ''}`);
         
         const python = spawn('./venv/bin/python3', ['atlas_api.py', JSON.stringify(args)]);
         let dataString = '';

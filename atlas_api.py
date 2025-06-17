@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 
 import pandas as pd
 import requests
+import numpy as np
 
 BASEURL = "https://fallingstar-data.com/forcedphot"
 CACHE_DIR = "atlas_cache"
@@ -89,60 +90,45 @@ def get_atlas_token(username, password):
     except Exception as e:
         return {"success": False, "error": f"Authentication error: {str(e)}"}
 
-def queue_atlas_job(token, ra, dec, mjd_min):
-    """Queue an ATLAS forced photometry job"""
-    headers = {"Authorization": f"Token {token}", "Accept": "application/json"}
+def queue_atlas_job(token, ra, dec, mjd_min, mjd_max=None):
+    """Queue a forced photometry job with ATLAS"""
+    url = "https://fallingstar-data.com/forcedphot/queue/"
     
-    queue_data = {
+    data = {
         "ra": ra,
         "dec": dec,
-        "mjd_min": mjd_min
+        "mjd_min": mjd_min,
+        "send_email": False,
+        "subract_background": True,
+        "use_reduced": False
     }
     
-    task_url = None
-    max_retries = 5
-    retry_count = 0
+    # Add mjd_max if provided
+    if mjd_max is not None:
+        data["mjd_max"] = mjd_max
     
-    while not task_url and retry_count < max_retries:
-        try:
-            with requests.Session() as s:
-                resp = s.post(f"{BASEURL}/queue/", headers=headers, data=queue_data, timeout=30)
+    headers = {
+        "Authorization": f"Token {token}",
+        "Accept": "application/json"
+    }
+    
+    try:
+        with requests.Session() as s:
+            resp = s.post(url, json=data, headers=headers, timeout=30)
+            
+            if resp.status_code == 201:
+                job_data = resp.json()
+                task_url = job_data["url"]
+                print(f"Job queued at {job_data['timestamp']}", file=sys.stderr)
+                return {"success": True, "task_url": task_url}
+            else:
+                error_msg = f"Queue job failed with status {resp.status_code}"
+                if resp.text:
+                    error_msg += f": {resp.text}"
+                return {"success": False, "error": error_msg}
                 
-                if resp.status_code == 201:  # successfully queued
-                    task_url = resp.json()["url"]
-                    return {"success": True, "task_url": task_url}
-                    
-                elif resp.status_code == 429:  # throttled
-                    message = resp.json().get("detail", "Rate limited")
-                    print(f"Rate limited: {message}", file=sys.stderr)
-                    
-                    # Extract wait time from message
-                    t_sec = re.findall(r"available in (\d+) seconds", message)
-                    t_min = re.findall(r"available in (\d+) minutes", message)
-                    
-                    if t_sec:
-                        waittime = int(t_sec[0])
-                    elif t_min:
-                        waittime = int(t_min[0]) * 60
-                    else:
-                        waittime = 10
-                    
-                    print(f"Waiting {waittime} seconds before retry", file=sys.stderr)
-                    time.sleep(waittime)
-                    retry_count += 1
-                    
-                else:
-                    error_msg = f"Queue request failed: HTTP {resp.status_code}"
-                    if resp.text:
-                        error_msg += f" - {resp.text}"
-                    return {"success": False, "error": error_msg}
-                    
-        except requests.exceptions.Timeout:
-            return {"success": False, "error": "Queue request timed out"}
-        except Exception as e:
-            return {"success": False, "error": f"Queue error: {str(e)}"}
-    
-    return {"success": False, "error": "Max retries exceeded for queueing job"}
+    except Exception as e:
+        return {"success": False, "error": f"Queue job error: {str(e)}"}
 
 def wait_for_results(token, task_url, max_wait_time=600):
     """Wait for ATLAS job to complete and return results URL"""
@@ -243,25 +229,42 @@ def download_atlas_results(token, result_url):
                 
                 # Parse the CSV data
                 try:
-                    df = pd.read_csv(StringIO(textdata), sep=r"\s+")
-                    df = df.rename({"###MJD": "MJD"}, axis="columns")
+                    df = pd.read_csv(StringIO(textdata), delim_whitespace=True)
+                    print(f"Parsed CSV with {len(df)} rows", file=sys.stderr)
                     
-                    print(f"Parsed CSV with {len(df)} rows and columns: {list(df.columns)}", file=sys.stderr)
+                    # Filter out low SNR detections (SNR < 3)
+                    if 'uJy' in df.columns and 'duJy' in df.columns:
+                        df['snr'] = df['uJy'] / df['duJy']
+                        initial_count = len(df)
+                        df = df[df['snr'] >= 3.0]  # Keep only SNR >= 3
+                        print(f"Filtered {initial_count - len(df)} low SNR detections (< 3), keeping {len(df)} detections", file=sys.stderr)
+                    else:
+                        print("Warning: SNR filtering not applied - missing flux columns", file=sys.stderr)
                     
-                    # Convert to list of dictionaries for JSON serialization
+                    if len(df) == 0:
+                        print("No detections remain after SNR filtering", file=sys.stderr)
+                        return {"success": True, "data": []}
+                    
+                    # Convert to standardized format
                     photometry_data = []
                     for _, row in df.iterrows():
-                        # Only include valid detections (not upper limits)
-                        if pd.notna(row.get('m')) and pd.notna(row.get('dm')):
+                        # Convert flux to magnitude if needed
+                        if 'uJy' in df.columns and pd.notna(row['uJy']) and row['uJy'] > 0:
+                            mag = -2.5 * np.log10(row['uJy'] / 1e6) + 23.9  # Convert µJy to AB mag
+                            mag_err = 2.5 * np.log10(np.e) * row['duJy'] / row['uJy'] if 'duJy' in df.columns and pd.notna(row['duJy']) else 0.1
+                        else:
+                            mag = row.get('m', np.nan)
+                            mag_err = row.get('dm', 0.1)
+                        
+                        if pd.notna(mag):
                             photometry_data.append({
-                                'mjd': float(row['MJD']),
-                                'mag': float(row['m']),
-                                'e_mag': float(row['dm']),
-                                'filter': str(row['F']),  # 'o' or 'c'
-                                'flux_ujy': float(row.get('uJy', 0)) if pd.notna(row.get('uJy')) else 0,
-                                'flux_err_ujy': float(row.get('duJy', 0)) if pd.notna(row.get('duJy')) else 0,
-                                'ra': float(row.get('RA', 0)) if pd.notna(row.get('RA')) else 0,
-                                'dec': float(row.get('Dec', 0)) if pd.notna(row.get('Dec')) else 0
+                                'mjd': row['MJD'] if 'MJD' in df.columns else row.get('mjd', 0),
+                                'mag': round(mag, 3),
+                                'e_mag': round(mag_err, 3),
+                                'filter': row['F'] if 'F' in df.columns else row.get('filter', 'unknown'),
+                                'flux_ujy': row['uJy'] if 'uJy' in df.columns else None,
+                                'flux_err_ujy': row['duJy'] if 'duJy' in df.columns else None,
+                                'snr': round(row['uJy'] / row['duJy'], 2) if 'uJy' in df.columns and 'duJy' in df.columns else None
                             })
                     
                     print(f"Found {len(photometry_data)} valid detections", file=sys.stderr)
@@ -285,7 +288,7 @@ def download_atlas_results(token, result_url):
         print(f"Download exception: {str(e)}", file=sys.stderr)
         return {"success": False, "error": f"Download error: {str(e)}"}
 
-def get_atlas_photometry(username, password, ra, dec, mjd_min=None):
+def get_atlas_photometry(username, password, ra, dec, discovery_date=None):
     """
     Main function to get ATLAS forced photometry with caching
     
@@ -294,29 +297,58 @@ def get_atlas_photometry(username, password, ra, dec, mjd_min=None):
         password: ATLAS password
         ra: Right ascension in decimal degrees
         dec: Declination in decimal degrees
-        mjd_min: Minimum MJD (defaults to 3 years ago)
+        discovery_date: Discovery date as string (YYYY-MM-DD) or datetime object
     
     Returns:
         Dict with success status and data or error message
     """
-    # Set default mjd_min to 3 years ago if not specified
-    if mjd_min is None:
-        three_years_ago = datetime.now() - timedelta(days=3*365)
-        # Fix MJD calculation: MJD 0 = November 17, 1858
-        mjd_min = (three_years_ago - datetime(1858, 11, 17)).days
-        print(f"Calculated MJD_min: {mjd_min} for date: {three_years_ago.strftime('%Y-%m-%d')}", file=sys.stderr)
+    # Calculate targeted time window based on discovery date
+    if discovery_date is None:
+        # Fallback: use 6 months ago to now if no discovery date provided
+        six_months_ago = datetime.now() - timedelta(days=180)
+        mjd_min = (six_months_ago - datetime(1858, 11, 17)).days
+        mjd_max = (datetime.now() - datetime(1858, 11, 17)).days
+        print(f"No discovery date provided, using 6-month window: MJD {mjd_min} to {mjd_max}", file=sys.stderr)
+    else:
+        # Parse discovery date if it's a string
+        if isinstance(discovery_date, str):
+            try:
+                discovery_dt = datetime.strptime(discovery_date, '%Y-%m-%d')
+            except ValueError:
+                try:
+                    discovery_dt = datetime.strptime(discovery_date, '%Y-%m-%d %H:%M:%S')
+                except ValueError:
+                    print(f"Error: Could not parse discovery date '{discovery_date}'. Using fallback.", file=sys.stderr)
+                    six_months_ago = datetime.now() - timedelta(days=180)
+                    mjd_min = (six_months_ago - datetime(1858, 11, 17)).days
+                    mjd_max = (datetime.now() - datetime(1858, 11, 17)).days
+                    discovery_dt = None
+        else:
+            discovery_dt = discovery_date
+        
+        if discovery_dt:
+            # 100 days before discovery
+            start_date = discovery_dt - timedelta(days=100)
+            
+            # 1 year after discovery or present date, whichever is earlier
+            one_year_after = discovery_dt + timedelta(days=365)
+            end_date = min(one_year_after, datetime.now())
+            
+            # Convert to MJD
+            mjd_min = (start_date - datetime(1858, 11, 17)).days
+            mjd_max = (end_date - datetime(1858, 11, 17)).days
+            
+            print(f"Using discovery-based window: {discovery_dt.strftime('%Y-%m-%d')} -> MJD {mjd_min} to {mjd_max} ({start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')})", file=sys.stderr)
+
+    # Generate cache key based on coordinates and time window
+    cache_key = f"atlas_{ra:.6f}_{dec:.6f}_{mjd_min}_{mjd_max}"
+    cached_result = get_cached_result(cache_key)
     
-    # Check cache first
-    cache_key = get_cache_key(ra, dec, mjd_min)
-    cache_file = os.path.join(CACHE_DIR, f"atlas_{cache_key}.json")
-    
-    if is_cache_valid(cache_file):
-        print(f"Loading ATLAS data from cache for RA={ra}, Dec={dec}", file=sys.stderr)
-        cached_data = load_from_cache(cache_file)
-        if cached_data:
-            return cached_data
-    
-    print(f"Fetching fresh ATLAS data for RA={ra}, Dec={dec}, MJD_min={mjd_min}", file=sys.stderr)
+    if cached_result:
+        print(f"Returning cached ATLAS data for RA={ra}, Dec={dec}", file=sys.stderr)
+        return cached_result
+
+    print(f"Fetching fresh ATLAS data for RA={ra}, Dec={dec}, MJD_min={mjd_min}, MJD_max={mjd_max}", file=sys.stderr)
     
     # Get authentication token
     token_result = get_atlas_token(username, password)
@@ -326,7 +358,7 @@ def get_atlas_photometry(username, password, ra, dec, mjd_min=None):
     token = token_result["token"]
     
     # Queue the job
-    queue_result = queue_atlas_job(token, ra, dec, mjd_min)
+    queue_result = queue_atlas_job(token, ra, dec, mjd_min, mjd_max)
     if not queue_result["success"]:
         return queue_result
     
@@ -346,7 +378,8 @@ def get_atlas_photometry(username, password, ra, dec, mjd_min=None):
             "parameters": {
                 "ra": ra,
                 "dec": dec, 
-                "mjd_min": mjd_min
+                "mjd_min": mjd_min,
+                "mjd_max": mjd_max
             }
         }
         save_to_cache(cache_file, cache_data)
@@ -367,7 +400,8 @@ def get_atlas_photometry(username, password, ra, dec, mjd_min=None):
         "parameters": {
             "ra": ra,
             "dec": dec, 
-            "mjd_min": mjd_min
+            "mjd_min": mjd_min,
+            "mjd_max": mjd_max
         }
     }
     save_to_cache(cache_file, cache_data)
@@ -386,9 +420,9 @@ if __name__ == "__main__":
         password = args.get('password')
         ra = args.get('ra')
         dec = args.get('dec')
-        mjd_min = args.get('mjd_min')
+        discovery_date = args.get('discovery_date')
         
-        result = get_atlas_photometry(username, password, ra, dec, mjd_min)
+        result = get_atlas_photometry(username, password, ra, dec, discovery_date)
         print(json.dumps(result))
         
     except Exception as e:
