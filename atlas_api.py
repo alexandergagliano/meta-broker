@@ -164,8 +164,33 @@ def wait_for_results(token, task_url, max_wait_time=300):
                     job_data = resp.json()
                     
                     if job_data.get("finishtimestamp"):
-                        result_url = job_data["result_url"]
-                        return {"success": True, "result_url": result_url}
+                        # Debug: Print the full job_data structure to see what fields are available
+                        print(f"Job finished. Full job_data: {json.dumps(job_data, indent=2)}", file=sys.stderr)
+                        
+                        # Check if there's an error message that indicates no data
+                        error_msg = job_data.get("error_msg", "")
+                        if error_msg and "No data returned" in error_msg:
+                            return {"success": True, "result_url": None, "no_data": True}
+                        
+                        # Try different possible field names for the result URL
+                        result_url = (job_data.get("result_url") or 
+                                    job_data.get("resulturl") or 
+                                    job_data.get("result") or 
+                                    job_data.get("download_url") or
+                                    job_data.get("url"))
+                        
+                        # If we still don't have a result_url, try constructing one from the job data
+                        if not result_url and job_data.get("id"):
+                            # Sometimes the download URL needs to be constructed
+                            job_id = job_data.get("id")
+                            constructed_url = f"https://fallingstar-data.com/forcedphot/queue/{job_id}/results/"
+                            print(f"No result_url found, trying constructed URL: {constructed_url}", file=sys.stderr)
+                            result_url = constructed_url
+                        
+                        if result_url:
+                            return {"success": True, "result_url": result_url}
+                        else:
+                            return {"success": False, "error": f"Job completed but no result URL found. Available fields: {list(job_data.keys())}, Error message: {error_msg}"}
                         
                     elif job_data.get("starttimestamp"):
                         if not taskstarted_printed:
@@ -285,6 +310,21 @@ def get_atlas_photometry(username, password, ra, dec, mjd_min=None):
     wait_result = wait_for_results(token, task_url)
     if not wait_result["success"]:
         return wait_result
+    
+    # Check if job completed but no data was found
+    if wait_result.get("no_data"):
+        cache_data = {
+            "success": True,
+            "data": [],
+            "cached_at": datetime.now().isoformat(),
+            "parameters": {
+                "ra": ra,
+                "dec": dec, 
+                "mjd_min": mjd_min
+            }
+        }
+        save_to_cache(cache_file, cache_data)
+        return cache_data
     
     result_url = wait_result["result_url"]
     
