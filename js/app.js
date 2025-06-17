@@ -2325,6 +2325,24 @@ document.addEventListener('DOMContentLoaded', () => {
             
             const plotData = traces;
             
+            // Calculate y-axis range: force between 10-23 mag, but allow dynamic scaling within this range
+            let allMags = [];
+            traces.forEach(trace => {
+                if (trace.y && trace.y.length > 0) {
+                    allMags = allMags.concat(trace.y.filter(mag => !isNaN(mag) && mag !== null));
+                }
+            });
+            
+            let yMin = 23;  // Faintest (highest magnitude)
+            let yMax = 10;  // Brightest (lowest magnitude)
+            
+            if (allMags.length > 0) {
+                const dataMin = Math.max(10, Math.min(...allMags) - 0.5);  // Don't go below 10 mag
+                const dataMax = Math.min(23, Math.max(...allMags) + 0.5);  // Don't go above 23 mag
+                yMin = dataMax;  // Remember: magnitudes are reversed
+                yMax = dataMin;
+            }
+            
             const layout = {
                 title: {
                     text: `Light Curve for ${ztfId}${atlasData.length > 0 ? ' (ZTF + ATLAS)' : ' (ZTF only)'}`,
@@ -2344,7 +2362,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         text: 'Magnitude',
                         font: { size: 16 }
                     },
-                    autorange: 'reversed',
+                    range: [yMin, yMax],  // Force y-axis limits (reversed for magnitudes)
                     tickfont: { size: 14 }
                 },
                 showlegend: true,
