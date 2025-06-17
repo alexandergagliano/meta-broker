@@ -837,8 +837,8 @@ document.addEventListener('DOMContentLoaded', () => {
             showStatus('');
             
             // --- Light Curve Plotting ---
-            // Plot light curve directly here with the correct ZTF ID to avoid state issues
-            if (hasZtfId && ztfId) {
+            // Plot light curve for any object with coordinates (ZTF + ATLAS)
+            if (transient && transient.ra && transient.declination) {
                 
                 // Make sure the lightcurve section is visible
                 const lightcurveSection = document.querySelector('.lightcurve-stats-section');
@@ -859,13 +859,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 }
                 
-                // Plot the light curve with the correct ZTF ID
-                plotAlerceLightcurve(ztfId);
+                // Plot unified light curve (ZTF + ATLAS) for any object with coordinates
+                plotUnifiedLightcurve(ztfId, transient);
             } else {
                 const lightcurvePlot = document.getElementById('lightcurvePlot');
                 if (lightcurvePlot) {
                     lightcurvePlot.innerHTML = 
-                        '<div class="alert alert-info"><h4>📈 Light Curve Not Available</h4><p>This object does not have a ZTF identifier and was likely discovered by other surveys (PanSTARRS, ATLAS, etc.). Light curve data is only available for ZTF survey objects.</p></div>';
+                        '<div class="alert alert-info"><h4>📈 Light Curve Not Available</h4><p>This object does not have coordinate information required for photometric data queries.</p></div>';
                 }
             }
             
@@ -2124,12 +2124,12 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
     
-    // Function to plot ALeRCE light curve with ATLAS data
-    async function plotAlerceLightcurve(ztfId) {
+    // Function to plot unified light curve with ZTF and ATLAS data
+    async function plotUnifiedLightcurve(ztfId, transient) {
         try {
-            if (!ztfId) {
+            if (!transient || !transient.ra || !transient.declination) {
                 document.getElementById('lightcurvePlot').innerHTML = 
-                    '<div class="alert alert-info"><h4>📈 Light Curve Not Available</h4><p>This object does not have a ZTF identifier and was likely discovered by other surveys (PanSTARRS, ATLAS, etc.). Light curve data is only available for ZTF survey objects.</p></div>';
+                    '<div class="alert alert-info"><h4>📈 Light Curve Not Available</h4><p>This object does not have coordinate information required for photometric data queries.</p></div>';
                 return;
             }
             
@@ -2155,102 +2155,97 @@ document.addEventListener('DOMContentLoaded', () => {
                 await Plotly.purge(plotContainer);
             }
             
-            // Fetch ZTF data from ALeRCE
-            const response = await fetch(`${API_BASE_URL}/api/alerce/lightcurve?ztf_id=${encodeURIComponent(ztfId)}`);
+            // Initialize data arrays
+            let gFilter = [];
+            let rFilter = [];
             
-            if (!response.ok) {
-                throw new Error('Failed to fetch ZTF light curve data');
-            }
-            
-            const lightcurveData = await response.json();
-            
-            // Handle different response formats
-            let photometryData = lightcurveData;
-            
-            // If the response is an object with a data property, use that
-            if (lightcurveData && typeof lightcurveData === 'object' && lightcurveData.data) {
-                photometryData = lightcurveData.data;
-            }
-            
-            // If it's still not an array, try to extract from different possible structures
-            if (!Array.isArray(photometryData)) {
-                // Try different possible keys where the array might be
-                const possibleKeys = ['detections', 'lightcurve', 'photometry', 'data', 'alerts'];
-                for (const key of possibleKeys) {
-                    if (photometryData[key] && Array.isArray(photometryData[key])) {
-                        photometryData = photometryData[key];
-                        break;
+            // Fetch ZTF data from ALeRCE if ZTF ID is available
+            if (ztfId) {
+                try {
+                    const response = await fetch(`${API_BASE_URL}/api/alerce/lightcurve?ztf_id=${encodeURIComponent(ztfId)}`);
+                    
+                    if (response.ok) {
+                        const lightcurveData = await response.json();
+                        
+                        // Handle different response formats
+                        let photometryData = lightcurveData;
+                        
+                        // If the response is an object with a data property, use that
+                        if (lightcurveData && typeof lightcurveData === 'object' && lightcurveData.data) {
+                            photometryData = lightcurveData.data;
+                        }
+                        
+                        // If it's still not an array, try to extract from different possible structures
+                        if (!Array.isArray(photometryData)) {
+                            // Try different possible keys where the array might be
+                            const possibleKeys = ['detections', 'lightcurve', 'photometry', 'data', 'alerts'];
+                            for (const key of possibleKeys) {
+                                if (photometryData[key] && Array.isArray(photometryData[key])) {
+                                    photometryData = photometryData[key];
+                                    break;
+                                }
+                            }
+                        }
+                        
+                        if (Array.isArray(photometryData) && photometryData.length > 0) {
+                            // Process ZTF data for Plotly
+                            gFilter = photometryData.filter(d => d.fid === 1);
+                            rFilter = photometryData.filter(d => d.fid === 2);
+                            console.log(`Found ${gFilter.length} ZTF g-band and ${rFilter.length} ZTF r-band detections`);
+                        } else {
+                            console.log('No ZTF photometry data available for this object');
+                        }
+                    } else {
+                        console.warn('Failed to fetch ZTF data, will show ATLAS only');
                     }
+                } catch (ztfError) {
+                    console.warn('Error fetching ZTF data:', ztfError);
                 }
+            } else {
+                console.log('No ZTF ID available, will show ATLAS only');
             }
-            
-            
-            if (!Array.isArray(photometryData) || photometryData.length === 0) {
-                plotContainer.innerHTML = '<div class="alert alert-info">No ZTF photometry data available for this object.</div>';
-                return;
-            }
-            
-            // Process ZTF data for Plotly
-            const gFilter = photometryData.filter(d => d.fid === 1);
-            const rFilter = photometryData.filter(d => d.fid === 2);
             
             // Try to fetch ATLAS data if credentials are available
             let atlasData = [];
-            if (API_CREDENTIALS.atlas_username && API_CREDENTIALS.atlas_password) {
+            if (API_CREDENTIALS.atlas_username && API_CREDENTIALS.atlas_password && transient.ra && transient.declination) {
                 try {
-                    // Get coordinates from the current transient
-                    const transientNameInput = document.getElementById('transient-name');
-                    if (transientNameInput && transientNameInput.value && tnsCache) {
-                        const searchName = transientNameInput.value.trim().toLowerCase().replace(/^sn\s+/, '');
-                        let transient = tnsCache.find(obj => {
-                            const objName = obj.name.toLowerCase().replace(/^sn\s+/, '');
-                            return objName === searchName || 
-                                   (obj.internal_names && obj.internal_names.toLowerCase().includes(searchName));
-                        });
-                        
-                        if (!transient) {
-                            transient = getFallbackTransientData(searchName);
+                    const { raDecimal, decDecimal } = convertToDecimal(transient.ra, transient.declination);
+                    
+                    console.log('Fetching ATLAS data for:', transient.name, 'at', raDecimal, decDecimal);
+                    if (transient.discoverydate) {
+                        console.log('Using discovery date:', transient.discoverydate);
+                    }
+                    
+                    const loadingMessage = ztfId ? 'Loading ZTF and ATLAS photometry...' : 'Loading ATLAS photometry...';
+                    plotContainer.innerHTML = `<div class="loading-message">${loadingMessage}</div>`;
+                    
+                    // Build ATLAS URL with discovery date if available
+                    let atlasUrl = `${API_BASE_URL}/api/atlas/photometry?ra=${raDecimal}&dec=${decDecimal}&username=${encodeURIComponent(API_CREDENTIALS.atlas_username)}&password=${encodeURIComponent(API_CREDENTIALS.atlas_password)}`;
+                    if (transient.discoverydate && transient.discoverydate !== 'null') {
+                        atlasUrl += `&discovery_date=${encodeURIComponent(transient.discoverydate)}`;
+                    }
+                    
+                    const atlasResponse = await fetch(atlasUrl);
+                    
+                    if (atlasResponse.ok) {
+                        const atlasResult = await atlasResponse.json();
+                        if (atlasResult.success && atlasResult.data) {
+                            atlasData = atlasResult.data;
+                            console.log(`Found ${atlasData.length} ATLAS detections`);
+                            // Debug: show first few ATLAS data points
+                            if (atlasData.length > 0) {
+                                console.log('First 3 ATLAS data points:', atlasData.slice(0, 3));
+                                console.log('ATLAS MJD range:', Math.min(...atlasData.map(d => d.mjd)), 'to', Math.max(...atlasData.map(d => d.mjd)));
+                                console.log('ATLAS filters found:', [...new Set(atlasData.map(d => d.filter))]);
+                            }
+                        } else {
+                            console.warn('ATLAS query succeeded but no data:', atlasResult.message || atlasResult.error);
                         }
-                        
-                        if (transient && transient.ra && transient.declination) {
-                            const { raDecimal, decDecimal } = convertToDecimal(transient.ra, transient.declination);
-                            
-                            console.log('Fetching ATLAS data for:', transient.name, 'at', raDecimal, decDecimal);
-                            if (transient.discoverydate) {
-                                console.log('Using discovery date:', transient.discoverydate);
-                            }
-                            plotContainer.innerHTML = '<div class="loading-message">Loading ZTF and ATLAS photometry...</div>';
-                            
-                            // Build ATLAS URL with discovery date if available
-                            let atlasUrl = `${API_BASE_URL}/api/atlas/photometry?ra=${raDecimal}&dec=${decDecimal}&username=${encodeURIComponent(API_CREDENTIALS.atlas_username)}&password=${encodeURIComponent(API_CREDENTIALS.atlas_password)}`;
-                            if (transient.discoverydate && transient.discoverydate !== 'null') {
-                                atlasUrl += `&discovery_date=${encodeURIComponent(transient.discoverydate)}`;
-                            }
-                            
-                            const atlasResponse = await fetch(atlasUrl);
-                            
-                            if (atlasResponse.ok) {
-                                const atlasResult = await atlasResponse.json();
-                                if (atlasResult.success && atlasResult.data) {
-                                    atlasData = atlasResult.data;
-                                    console.log(`Found ${atlasData.length} ATLAS detections`);
-                                    // Debug: show first few ATLAS data points
-                                    if (atlasData.length > 0) {
-                                        console.log('First 3 ATLAS data points:', atlasData.slice(0, 3));
-                                        console.log('ATLAS MJD range:', Math.min(...atlasData.map(d => d.mjd)), 'to', Math.max(...atlasData.map(d => d.mjd)));
-                                        console.log('ATLAS filters found:', [...new Set(atlasData.map(d => d.filter))]);
-                                    }
-                                } else {
-                                    console.warn('ATLAS query succeeded but no data:', atlasResult.message || atlasResult.error);
-                                }
-                            } else {
-                                console.warn('Failed to fetch ATLAS data - will show ZTF only');
-                            }
-                        }
+                    } else {
+                        console.warn('Failed to fetch ATLAS data');
                     }
                 } catch (atlasError) {
                     console.warn('Error fetching ATLAS data:', atlasError);
-                    // Continue with ZTF-only plot
                 }
             }
             
@@ -2334,6 +2329,24 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
             
+            // Check if we have any data to plot
+            if (traces.length === 0) {
+                const hasZtf = gFilter.length > 0 || rFilter.length > 0;
+                const hasAtlas = atlasData.length > 0;
+                let message = 'No photometric data available for this object';
+                
+                if (!API_CREDENTIALS.atlas_username || !API_CREDENTIALS.atlas_password) {
+                    message += ' (ATLAS credentials not provided - only ZTF data checked)';
+                } else if (!ztfId) {
+                    message += ' (no ZTF ID available, checked ATLAS only)';
+                } else {
+                    message += ' (checked both ZTF and ATLAS)';
+                }
+                
+                plotContainer.innerHTML = `<div class="alert alert-info"><h4>📈 Light Curve Not Available</h4><p>${message}.</p></div>`;
+                return;
+            }
+            
             const plotData = traces;
             
             // Calculate y-axis range: force between 10-23 mag, but allow dynamic scaling within this range
@@ -2354,9 +2367,22 @@ document.addEventListener('DOMContentLoaded', () => {
                 yMax = dataMin;
             }
             
+            // Create descriptive title based on available data
+            let titleText = `Light Curve for ${transient.name}`;
+            const hasZtfData = gFilter.length > 0 || rFilter.length > 0;
+            const hasAtlasData = atlasData.length > 0;
+            
+            if (hasZtfData && hasAtlasData) {
+                titleText += ' (ZTF + ATLAS)';
+            } else if (hasZtfData) {
+                titleText += ' (ZTF only)';
+            } else if (hasAtlasData) {
+                titleText += ' (ATLAS only)';
+            }
+            
             const layout = {
                 title: {
-                    text: `Light Curve for ${ztfId}${atlasData.length > 0 ? ' (ZTF + ATLAS)' : ' (ZTF only)'}`,
+                    text: titleText,
                     font: { size: 18 }
                 },
                 xaxis: {
