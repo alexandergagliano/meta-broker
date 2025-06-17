@@ -61,6 +61,21 @@ def save_to_cache(cache_file, data):
     except Exception as e:
         print(f"Error saving to cache: {e}", file=sys.stderr)
 
+def get_cached_result(cache_key):
+    """Get cached result by cache key"""
+    cache_file = os.path.join(CACHE_DIR, f"atlas_{cache_key}.json")
+    
+    if is_cache_valid(cache_file):
+        cached_data = load_from_cache(cache_file)
+        if cached_data:
+            return cached_data
+    return None
+
+def save_to_cache_with_key(cache_key, data):
+    """Save data to cache using cache key"""
+    cache_file = os.path.join(CACHE_DIR, f"atlas_{cache_key}.json")
+    save_to_cache(cache_file, data)
+
 def get_atlas_token(username, password):
     """Get authentication token from ATLAS API"""
     if not username or not password:
@@ -313,16 +328,27 @@ def get_atlas_photometry(username, password, ra, dec, discovery_date=None):
         # Parse discovery date if it's a string
         if isinstance(discovery_date, str):
             try:
+                # Try standard date format first
                 discovery_dt = datetime.strptime(discovery_date, '%Y-%m-%d')
             except ValueError:
                 try:
+                    # Try datetime with seconds format
                     discovery_dt = datetime.strptime(discovery_date, '%Y-%m-%d %H:%M:%S')
                 except ValueError:
-                    print(f"Error: Could not parse discovery date '{discovery_date}'. Using fallback.", file=sys.stderr)
-                    six_months_ago = datetime.now() - timedelta(days=180)
-                    mjd_min = (six_months_ago - datetime(1858, 11, 17)).days
-                    mjd_max = (datetime.now() - datetime(1858, 11, 17)).days
-                    discovery_dt = None
+                    try:
+                        # Try datetime with microseconds format (like '2023-04-17 07:39:19.008')
+                        discovery_dt = datetime.strptime(discovery_date, '%Y-%m-%d %H:%M:%S.%f')
+                    except ValueError:
+                        try:
+                            # Try to just extract the date part (before any space)
+                            date_part = discovery_date.split(' ')[0]
+                            discovery_dt = datetime.strptime(date_part, '%Y-%m-%d')
+                        except ValueError:
+                            print(f"Error: Could not parse discovery date '{discovery_date}'. Using fallback.", file=sys.stderr)
+                            six_months_ago = datetime.now() - timedelta(days=180)
+                            mjd_min = (six_months_ago - datetime(1858, 11, 17)).days
+                            mjd_max = (datetime.now() - datetime(1858, 11, 17)).days
+                            discovery_dt = None
         else:
             discovery_dt = discovery_date
         
@@ -382,7 +408,7 @@ def get_atlas_photometry(username, password, ra, dec, discovery_date=None):
                 "mjd_max": mjd_max
             }
         }
-        save_to_cache(cache_file, cache_data)
+        save_to_cache_with_key(cache_key, cache_data)
         return cache_data
     
     result_url = wait_result["result_url"]
@@ -404,7 +430,7 @@ def get_atlas_photometry(username, password, ra, dec, discovery_date=None):
             "mjd_max": mjd_max
         }
     }
-    save_to_cache(cache_file, cache_data)
+    save_to_cache_with_key(cache_key, cache_data)
     
     return cache_data
 
