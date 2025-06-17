@@ -2367,22 +2367,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 yMax = dataMin;
             }
             
-            // Create descriptive title based on available data
-            let titleText = `Light Curve for ${transient.name}`;
-            const hasZtfData = gFilter.length > 0 || rFilter.length > 0;
-            const hasAtlasData = atlasData.length > 0;
-            
-            if (hasZtfData && hasAtlasData) {
-                titleText += ' (ZTF + ATLAS)';
-            } else if (hasZtfData) {
-                titleText += ' (ZTF only)';
-            } else if (hasAtlasData) {
-                titleText += ' (ATLAS only)';
-            }
-            
             const layout = {
                 title: {
-                    text: titleText,
+                    text: `Light Curve for ${transient.name}`,
                     font: { size: 18 }
                 },
                 xaxis: {
