@@ -245,7 +245,20 @@ def download_atlas_results(token, result_url):
                 # Parse the CSV data
                 try:
                     df = pd.read_csv(StringIO(textdata), delim_whitespace=True)
-                    print(f"Parsed CSV with {len(df)} rows", file=sys.stderr)
+                    print(f"Parsed CSV with {len(df)} rows and columns: {list(df.columns)}", file=sys.stderr)
+                    
+                    # Check for different possible MJD column names
+                    mjd_column = None
+                    possible_mjd_columns = ['MJD', 'mjd', 'MJD_OBS', 'mjd_obs', '###MJD', 'JD', 'jd']
+                    for col in possible_mjd_columns:
+                        if col in df.columns:
+                            mjd_column = col
+                            print(f"Found MJD column: {mjd_column}", file=sys.stderr)
+                            break
+                    
+                    if not mjd_column:
+                        print(f"Warning: No MJD column found in {list(df.columns)}", file=sys.stderr)
+                        return {"success": False, "error": f"No MJD column found in ATLAS data. Available columns: {list(df.columns)}"}
                     
                     # Filter out low SNR detections (SNR < 3)
                     if 'uJy' in df.columns and 'duJy' in df.columns:
@@ -272,8 +285,13 @@ def download_atlas_results(token, result_url):
                             mag_err = row.get('dm', 0.1)
                         
                         if pd.notna(mag):
+                            mjd_value = row[mjd_column] if pd.notna(row[mjd_column]) else 0
+                            # Convert JD to MJD if necessary (JD = MJD + 2400000.5)
+                            if mjd_column in ['JD', 'jd'] and mjd_value > 2400000:
+                                mjd_value = mjd_value - 2400000.5
+                            
                             photometry_data.append({
-                                'mjd': row['MJD'] if 'MJD' in df.columns else row.get('mjd', 0),
+                                'mjd': round(mjd_value, 4),
                                 'mag': round(mag, 3),
                                 'e_mag': round(mag_err, 3),
                                 'filter': row['F'] if 'F' in df.columns else row.get('filter', 'unknown'),

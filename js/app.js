@@ -2234,6 +2234,12 @@ document.addEventListener('DOMContentLoaded', () => {
                                 if (atlasResult.success && atlasResult.data) {
                                     atlasData = atlasResult.data;
                                     console.log(`Found ${atlasData.length} ATLAS detections`);
+                                    // Debug: show first few ATLAS data points
+                                    if (atlasData.length > 0) {
+                                        console.log('First 3 ATLAS data points:', atlasData.slice(0, 3));
+                                        console.log('ATLAS MJD range:', Math.min(...atlasData.map(d => d.mjd)), 'to', Math.max(...atlasData.map(d => d.mjd)));
+                                        console.log('ATLAS filters found:', [...new Set(atlasData.map(d => d.filter))]);
+                                    }
                                 } else {
                                     console.warn('ATLAS query succeeded but no data:', atlasResult.message || atlasResult.error);
                                 }
@@ -2292,7 +2298,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 const atlasOFilter = atlasData.filter(d => d.filter === 'o');
                 const atlasCFilter = atlasData.filter(d => d.filter === 'c');
                 
+                console.log(`ATLAS o-filter: ${atlasOFilter.length} points`);
+                console.log(`ATLAS c-filter: ${atlasCFilter.length} points`);
+                
                 if (atlasOFilter.length > 0) {
+                    console.log('ATLAS o-filter MJDs:', atlasOFilter.slice(0, 3).map(d => d.mjd));
                     traces.push({
                         x: atlasOFilter.map(d => d.mjd),
                         y: atlasOFilter.map(d => d.mag),
@@ -2308,6 +2318,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 
                 if (atlasCFilter.length > 0) {
+                    console.log('ATLAS c-filter MJDs:', atlasCFilter.slice(0, 3).map(d => d.mjd));
                     traces.push({
                         x: atlasCFilter.map(d => d.mjd),
                         y: atlasCFilter.map(d => d.mag),
