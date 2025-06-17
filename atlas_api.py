@@ -283,7 +283,7 @@ def download_atlas_results(token, result_url):
                             mag_err = row.get('dm', 0.1) if 'dm' in df.columns and pd.notna(row.get('dm')) else 0.1
                         elif 'uJy' in df.columns and pd.notna(row['uJy']) and row['uJy'] > 0:
                             # Fallback: convert flux to magnitude if no apparent magnitude available
-                            mag = -2.5 * np.log10(row['uJy'] / 1e6) + 23.9  # Convert µJy to AB mag
+                            mag = -2.5 * np.log10(row['uJy']) + 23.9  # Convert µJy to AB mag (µJy already in microjanskys)
                             mag_err = 2.5 * np.log10(np.e) * row['duJy'] / row['uJy'] if 'duJy' in df.columns and pd.notna(row['duJy']) else 0.1
                         else:
                             mag = np.nan
